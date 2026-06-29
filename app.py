@@ -7,16 +7,16 @@ import requests
 import numpy as np
 from datetime import datetime
 
-# Page setup for enterprise layout
+# Page setup
 st.set_page_config(page_title="Maritime Intelligence - GIS & Satellites", layout="wide")
 st.title("🚢 Enterprise Maritime GeoAI Platform")
 st.subheader("Live Vessel Tracking • GIS Mapping • Satellite Imagery • Border Monitoring")
 
-# Fixed Terminal Coordinates (Haifa to New York)
+# Fixed Terminal Coordinates
 haifa_lat, haifa_lon = 32.8191, 34.9983
 nynj_lat, nynj_lon = 40.6815, -74.1145
 
-# Safe explicit color handles
+# Color handles
 h_red_val, h_green_val, h_blue_val = 0, 255, 0
 n_red_val, n_green_val, n_blue_val = 255, 0, 0
 cyan_r, cyan_g, cyan_b = 0, 191, 255
@@ -90,7 +90,7 @@ BORDER_LINES = {
 }
 
 # ==========================================
-# 4D TIME ENGINE: STATE INITIALIZATION
+# STATE INITIALIZATION
 # ==========================================
 if 'live_progress' not in st.session_state:
     st.session_state.live_progress = 35.0
@@ -114,7 +114,7 @@ if 'satellite_view_mode' not in st.session_state:
     st.session_state.satellite_view_mode = 'top_down'
 
 # ==========================================
-# GEOSPATIAL MATHEMATICS
+# GEOSPATIAL FUNCTIONS
 # ==========================================
 def calculate_distance(lat1, lon1, lat2, lon2):
     r_lat1, r_lon1, r_lat2, r_lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
@@ -230,14 +230,13 @@ def generate_satellite_image(lat, lon, mode='top_down'):
     return img
 
 # ==========================================
-# SIDEBAR CONTROL ROOM
+# SIDEBAR CONTROLS
 # ==========================================
 st.sidebar.header("🕹️ Fleet Control Center")
 
 sim_toggle = st.sidebar.button(
     label="⏸️ Pause Telemetry Stream" if st.session_state.simulation_running else "▶️ Launch Live Telemetry Stream"
 )
-
 if sim_toggle:
     st.session_state.simulation_running = not st.session_state.simulation_running
     if st.session_state.simulation_running:
@@ -249,14 +248,11 @@ if st.session_state.simulation_running:
     current_time = time.time()
     time_delta = current_time - st.session_state.last_update_time
     st.session_state.last_update_time = current_time
-    
     speed_factor = vessel_speed_knots / 20.0
     progress_increment = 0.15 * speed_factor * (time_delta / 0.1)
-    
     if st.session_state.live_progress < 100.0:
         st.session_state.live_progress = min(100.0, st.session_state.live_progress + progress_increment)
         st.session_state.time_counter += 1
-        
         if st.session_state.time_counter % 30 == 0:
             st.session_state.traffic_offset = np.random.uniform(-3, 3, 4)
     else:
@@ -265,9 +261,7 @@ if st.session_state.simulation_running:
 
 voyage_progress = st.sidebar.slider(
     label="Vessel Voyage Progress (%)", 
-    min_value=0, 
-    max_value=100, 
-    value=int(st.session_state.live_progress)
+    min_value=0, max_value=100, value=int(st.session_state.live_progress)
 )
 if voyage_progress != int(st.session_state.live_progress):
     st.session_state.live_progress = float(voyage_progress)
@@ -294,21 +288,17 @@ if st.sidebar.button("🔄 Reset Voyage"):
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🛰️ Satellite & GIS Controls")
-
 st.session_state.satellite_view_mode = st.sidebar.selectbox(
     "Satellite View Mode",
     ['top_down', 'multispectral', 'thermal'],
-    format_func=lambda x: {
-        'top_down': 'Top-Down (20m)',
-        'multispectral': 'Multispectral',
-        'thermal': 'Thermal'
-    }[x]
+    format_func=lambda x: {'top_down': 'Top-Down (20m)', 'multispectral': 'Multispectral', 'thermal': 'Thermal'}[x]
 )
-
 show_borders = st.sidebar.checkbox("Show Continental Borders", value=True)
 show_ais = st.sidebar.checkbox("Show AIS Targets", value=True)
 
-# Calculate current position
+# ==========================================
+# COMPUTE CURRENT POSITION & METRICS
+# ==========================================
 total_trip_distance = calculate_distance(haifa_lat, haifa_lon, nynj_lat, nynj_lon)
 fraction = st.session_state.live_progress / 100.0
 vessel_current_lat = haifa_lat + (nynj_lat - haifa_lat) * fraction
@@ -330,12 +320,9 @@ if border_crossings:
                 'lat': vessel_current_lat,
                 'lon': vessel_current_lon
             })
-
 current_continent = get_continent(vessel_current_lat, vessel_current_lon)
 
-# ==========================================
-# 🛰️ LIVE API WEATHER & SENSORS
-# ==========================================
+# Weather & Sensors
 try:
     api_url = f"https://api.open-meteo.com/v1/forecast?latitude={vessel_current_lat}&longitude={vessel_current_lon}&current_weather=true"
     response = requests.get(api_url, timeout=3).json()
@@ -360,7 +347,6 @@ sensor_data = {
     'wave_height': round(1.5 + 3.5 * math.sin(fraction * math.pi * 2), 1),
     'water_temp': round(15 + 10 * (fraction), 1)
 }
-
 st.session_state.sensor_data.append(sensor_data)
 if len(st.session_state.sensor_data) > 50:
     st.session_state.sensor_data = st.session_state.sensor_data[-50:]
@@ -376,9 +362,7 @@ simulated_depth_meters = round(-15.0 - (math.sin(fraction * math.pi) * 4985.0), 
 bathymetry_status = "🚨 CRITICAL SHALLOW RISK" if abs(simulated_depth_meters) < 18.0 else "✅ Safe Deep Water"
 risk_color = "inverse" if abs(simulated_depth_meters) < 18.0 else "off"
 
-# ==========================================
-# RISK PREDICTION
-# ==========================================
+# Risk
 def calculate_risk_score(progress, wind_speed, depth, speed):
     weather_risk = 30 if wind_speed >= 30 else 20 + (wind_speed - 20) if wind_speed >= 20 else 10 + (wind_speed - 10) if wind_speed >= 10 else wind_speed
     depth_abs = abs(depth)
@@ -396,77 +380,54 @@ def get_risk_level(score):
 
 risk_score = calculate_risk_score(st.session_state.live_progress, live_wind_knots, simulated_depth_meters, vessel_speed_knots)
 risk_level, risk_delta_color = get_risk_level(risk_score)
-
-st.session_state.risk_history.append({
-    'progress': st.session_state.live_progress,
-    'risk_score': risk_score,
-    'time': datetime.now().strftime('%H:%M:%S')
-})
+st.session_state.risk_history.append({'progress': st.session_state.live_progress, 'risk_score': risk_score, 'time': datetime.now().strftime('%H:%M:%S')})
 if len(st.session_state.risk_history) > 100:
     st.session_state.risk_history = st.session_state.risk_history[-100:]
 
 # ==========================================
-# 🚢 FLEET & GIS DATA
+# DATA FRAMES FOR MAP
 # ==========================================
 traffic_offset = st.session_state.traffic_offset
-
 ais_targets = pd.DataFrame({
-    'latitude': [
-        38.5 + traffic_offset[0], 34.2 + traffic_offset[1], 
-        41.1 + traffic_offset[2], 35.8 + traffic_offset[3],
-        39.0 + traffic_offset[0]*0.5, 36.0 + traffic_offset[1]*0.5
-    ],
-    'longitude': [
-        -35.4 + traffic_offset[0]*0.5, -42.1 + traffic_offset[1]*0.5, 
-        -22.5 + traffic_offset[2]*0.5, -50.2 + traffic_offset[3]*0.5,
-        -30.0 + traffic_offset[0]*0.3, -45.0 + traffic_offset[1]*0.3
-    ],
+    'latitude': [38.5+traffic_offset[0], 34.2+traffic_offset[1], 41.1+traffic_offset[2], 35.8+traffic_offset[3], 39.0+traffic_offset[0]*0.5, 36.0+traffic_offset[1]*0.5],
+    'longitude': [-35.4+traffic_offset[0]*0.5, -42.1+traffic_offset[1]*0.5, -22.5+traffic_offset[2]*0.5, -50.2+traffic_offset[3]*0.5, -30.0+traffic_offset[0]*0.3, -45.0+traffic_offset[1]*0.3],
     'vessel_name': ['MV-Rotterdam-Express', 'MV-Atlantic-Titan', 'MV-Hamburg-Carrier', 'MV-Tokyo-Maru', 'MV-Olympic-Star', 'MV-Celestial'],
     'type': ['Container', 'Tanker', 'Container', 'Bulk Carrier', 'Cruise', 'Cargo']
 })
-
 your_vessel_df = pd.DataFrame({
     'latitude': [vessel_current_lat],
     'longitude': [vessel_current_lon],
     'vessel_name': ['⭐ MV-YOUR-CARGO (Israel -> USA)'],
     'type': ['Target Asset']
 })
-
 ship_ports_df = pd.DataFrame({
-    'latitude': [haifa_lat, nynj_lat, 35.0, 37.0], 
+    'latitude': [haifa_lat, nynj_lat, 35.0, 37.0],
     'longitude': [haifa_lon, nynj_lon, -5.0, -25.0],
     'port_name': ['Port of Haifa (Origin)', 'Port of NY/NJ (Destination)', 'Gibraltar (Waypoint)', 'Azores (Waypoint)'],
-    'color_r': [h_red_val, n_red_val, 255, 255], 
-    'color_g': [h_green_val, n_green_val, 165, 165], 
+    'color_r': [h_red_val, n_red_val, 255, 255],
+    'color_g': [h_green_val, n_green_val, 165, 165],
     'color_b': [h_blue_val, n_blue_val, 0, 0]
 })
-
 route_data = pd.DataFrame({
-    'start_lon': [haifa_lon], 
-    'start_lat': [haifa_lat], 
-    'end_lon': [nynj_lon], 
-    'end_lat': [nynj_lat]
+    'start_lon': [haifa_lon], 'start_lat': [haifa_lat],
+    'end_lon': [nynj_lon], 'end_lat': [nynj_lat]
 })
 
-# Trail segments
+# Trail
 trail_points = []
-step_count = int(st.session_state.live_progress)
-for i in range(0, step_count + 1):
+for i in range(0, int(st.session_state.live_progress) + 1):
     f = i / 100.0
     trail_points.append({
-        'lon': haifa_lon + (nynj_lon - haifa_lon) * f, 
+        'lon': haifa_lon + (nynj_lon - haifa_lon) * f,
         'lat': haifa_lat + (nynj_lat - haifa_lat) * f
     })
 trail_df = pd.DataFrame(trail_points)
-
 history_segments = []
 if len(trail_df) > 1:
-    for idx in range(len(trail_df) - 1):
+    for idx in range(len(trail_df)-1):
         history_segments.append({
-            's_lon': trail_df.iloc[idx]['lon'], 
-            's_lat': trail_df.iloc[idx]['lat'],
-            'e_lon': trail_df.iloc[idx+1]['lon'], 
-            'e_lat': trail_df.iloc[idx+1]['lat']
+            's_lon': trail_df.iloc[idx]['lon'], 's_lat': trail_df.iloc[idx]['lat'],
+            'e_lon': trail_df.iloc[idx+1]['lon'], 'e_lat': trail_df.iloc[idx+1]['lat']
         })
 history_df = pd.DataFrame(history_segments)
 
@@ -478,6 +439,7 @@ for i in range(101):
     depth_data.append({'Voyage Progress (%)': i, 'Ocean Depth (m)': d})
 analytics_df = pd.DataFrame(depth_data).set_index('Voyage Progress (%)')
 
+# Voyage calculations
 total_hours_remaining = distance_remaining_nm / vessel_speed_knots if vessel_speed_knots > 0 else 0
 days = int(total_hours_remaining // 24)
 hours = int(total_hours_remaining % 24)
@@ -486,7 +448,7 @@ predicted_fuel_mt = round(dynamic_burn_per_day * (total_hours_remaining / 24.0),
 total_co2_emissions_mt = round(predicted_fuel_mt * 3.114, 1)
 
 # ==========================================
-# RENDER LAYOUT
+# RENDER UI
 # ==========================================
 if st.session_state.simulation_running:
     st.sidebar.success("🟢 LIVE TELEMETRY ACTIVE")
@@ -531,35 +493,26 @@ e5.metric("⚠️ Risk Score", f"{risk_score}/100", delta=risk_level, delta_colo
 st.markdown("---")
 
 # ==========================================
-# SATELLITE IMAGE VIEWER (20m Top-Down)
+# SATELLITE IMAGE
 # ==========================================
 st.markdown("### 🛰️ Earth Observer - Satellite Imagery (20m Top-Down View)")
-
-# Generate satellite image
-sat_img = generate_satellite_image(
-    vessel_current_lat, 
-    vessel_current_lon, 
-    mode=st.session_state.satellite_view_mode
-)
-
+sat_img = generate_satellite_image(vessel_current_lat, vessel_current_lon, mode=st.session_state.satellite_view_mode)
 col_img1, col_img2, col_img3 = st.columns([1, 2, 1])
 with col_img2:
     st.image(sat_img, caption=f"Satellite View - {st.session_state.satellite_view_mode.upper()} Mode | Position: {vessel_current_lat:.2f}°N, {abs(vessel_current_lon):.2f}°{'W' if vessel_current_lon < 0 else 'E'}", use_container_width=True)
     st.caption("🟡 Yellow marker indicates vessel position | Real-time Earth observation from 20m altitude")
-
 sat_info_col1, sat_info_col2, sat_info_col3 = st.columns(3)
 sat_info_col1.metric("Satellite", "Copernicus Sentinel-2", delta="Active")
 sat_info_col2.metric("Altitude", "20 meters", delta="Top-Down View")
 sat_info_col3.metric("Resolution", "10m/pixel", delta="Real-time")
-
 st.markdown("---")
 
 # ==========================================
-# ENHANCED GIS MAP
+# GIS MAP
 # ==========================================
 st.markdown("### 🗺️ Live Maritime GIS Map")
 
-# Border lines layer
+# Border lines
 border_lines_data = []
 for border_id, border in BORDER_LINES.items():
     for i in range(len(border['lat'])-1):
@@ -659,7 +612,7 @@ if layer_trail: active_layers.append(layer_trail)
 if layer_borders: active_layers.append(layer_borders)
 if layer_traffic: active_layers.append(layer_traffic)
 
-# Map center
+# Map center & zoom
 map_center_lat = vessel_current_lat
 map_center_lon = vessel_current_lon
 zoom_level = 5.5 if st.session_state.live_progress < 10 or st.session_state.live_progress > 90 else 4.5
@@ -667,10 +620,47 @@ zoom_level = 5.5 if st.session_state.live_progress < 10 or st.session_state.live
 st.pydeck_chart(pdk.Deck(
     map_style='mapbox://styles/mapbox/satellite-streets-v11',
     initial_view_state=pdk.ViewState(
-        latitude=map_center_lat, 
-        longitude=map_center_lon, 
-        zoom=zoom_level,        
+        latitude=map_center_lat,
+        longitude=map_center_lon,
+        zoom=zoom_level,
         pitch=0,
         bearing=0
     ),
-    layers=
+    layers=active_layers
+))  # <-- FIXED: TWO CLOSING PARENTHESES
+
+# ==========================================
+# ADDITIONAL CHARTS
+# ==========================================
+st.markdown("### 📊 Risk Score History")
+if len(st.session_state.risk_history) > 1:
+    risk_df = pd.DataFrame(st.session_state.risk_history)
+    st.line_chart(risk_df.set_index('progress')['risk_score'])
+
+st.markdown("### 📈 Voyage Time-Series Bathymetric Risk Predictor")
+st.line_chart(analytics_df['Ocean Depth (m)'])
+
+st.markdown("### 📡 Active Satellite System Telemetry Stream")
+col1, col2, col3 = st.columns(3)
+status_icon = "🟢 LIVE" if st.session_state.simulation_running else "⏸️ PAUSED"
+status_delta = "Streaming" if st.session_state.simulation_running else "Stopped"
+col1.metric("Vessel Status", status_icon, delta=status_delta)
+col2.metric("Voyage Progress", f"{round(st.session_state.live_progress, 1)}%", delta=f"{distance_covered_nm} NM traveled")
+col3.metric("Risk Level", risk_level, delta=f"Score: {risk_score}/100")
+
+st.markdown("### 📍 Current Vessel Position")
+st.info(f"**Latitude:** {vessel_current_lat:.4f}° | **Longitude:** {vessel_current_lon:.4f}° | **View:** Top-down at {zoom_level}x zoom | **Altitude:** 20 meters | **Heading:** {current_bearing}°")
+
+st.markdown("### ⏱️ Real-Time ETA Countdown")
+progress_bar = st.progress(st.session_state.live_progress / 100.0)
+col1, col2 = st.columns(2)
+col1.write(f"**Distance Remaining:** {distance_remaining_nm} NM")
+col2.write(f"**Estimated Arrival:** {days}d {hours}h at {vessel_speed_knots} knots")
+
+# Auto-refresh
+if st.session_state.simulation_running and st.session_state.live_progress < 100.0:
+    time.sleep(0.05)
+    st.rerun()
+
+st.markdown("---")
+st.caption("© 2026 Maritime Intelligence Platform | Real-time vessel tracking from Israel to USA | GIS Mapping • Satellite Imagery • Border Monitoring")
