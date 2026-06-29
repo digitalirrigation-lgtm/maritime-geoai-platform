@@ -6,6 +6,7 @@ import time
 import requests
 import numpy as np
 from datetime import datetime
+from PIL import Image, ImageDraw, ImageFilter
 
 # Page setup
 st.set_page_config(page_title="Maritime Intelligence - 200m View", layout="wide")
@@ -27,66 +28,18 @@ white_color, trail_green = 255, 127
 # GEOGRAPHIC BORDERS DATABASE
 # ==========================================
 CONTINENTAL_BORDERS = {
-    'asia_europe': {
-        'name': 'Asia-Europe Border',
-        'description': 'Crossing from Asia to Europe (Bosphorus Strait region)',
-        'lat_range': (35.0, 42.0),
-        'lon_range': (25.0, 30.0),
-        'color': '🟡'
-    },
-    'europe_africa': {
-        'name': 'Europe-Africa Border',
-        'description': 'Crossing from Europe to Africa (Strait of Gibraltar)',
-        'lat_range': (35.5, 36.5),
-        'lon_range': (-6.0, -5.0),
-        'color': '🟢'
-    },
-    'asia_africa': {
-        'name': 'Asia-Africa Border',
-        'description': 'Crossing from Asia to Africa (Suez Canal region)',
-        'lat_range': (30.0, 32.0),
-        'lon_range': (32.0, 34.0),
-        'color': '🔵'
-    },
-    'europe_america': {
-        'name': 'Europe-America Border',
-        'description': 'Crossing from Europe to America (Mid-Atlantic Ridge)',
-        'lat_range': (20.0, 50.0),
-        'lon_range': (-30.0, -25.0),
-        'color': '🟣'
-    },
-    'mediterranean': {
-        'name': 'Mediterranean Sea Entry',
-        'description': 'Entering Mediterranean Sea region',
-        'lat_range': (30.0, 38.0),
-        'lon_range': (-5.0, 35.0),
-        'color': '🔵'
-    },
-    'atlantic': {
-        'name': 'Atlantic Ocean Crossing',
-        'description': 'Crossing Atlantic Ocean',
-        'lat_range': (25.0, 45.0),
-        'lon_range': (-50.0, -10.0),
-        'color': '🌊'
-    }
+    'asia_europe': {'name': 'Asia-Europe Border', 'description': 'Crossing from Asia to Europe (Bosphorus Strait region)', 'lat_range': (35.0, 42.0), 'lon_range': (25.0, 30.0), 'color': '🟡'},
+    'europe_africa': {'name': 'Europe-Africa Border', 'description': 'Crossing from Europe to Africa (Strait of Gibraltar)', 'lat_range': (35.5, 36.5), 'lon_range': (-6.0, -5.0), 'color': '🟢'},
+    'asia_africa': {'name': 'Asia-Africa Border', 'description': 'Crossing from Asia to Africa (Suez Canal region)', 'lat_range': (30.0, 32.0), 'lon_range': (32.0, 34.0), 'color': '🔵'},
+    'europe_america': {'name': 'Europe-America Border', 'description': 'Crossing from Europe to America (Mid-Atlantic Ridge)', 'lat_range': (20.0, 50.0), 'lon_range': (-30.0, -25.0), 'color': '🟣'},
+    'mediterranean': {'name': 'Mediterranean Sea Entry', 'description': 'Entering Mediterranean Sea region', 'lat_range': (30.0, 38.0), 'lon_range': (-5.0, 35.0), 'color': '🔵'},
+    'atlantic': {'name': 'Atlantic Ocean Crossing', 'description': 'Crossing Atlantic Ocean', 'lat_range': (25.0, 45.0), 'lon_range': (-50.0, -10.0), 'color': '🌊'}
 }
 
 BORDER_LINES = {
-    'asia_europe_line': {
-        'lat': [35.0, 42.0],
-        'lon': [28.0, 28.0],
-        'name': 'Asia-Europe Border'
-    },
-    'europe_africa_line': {
-        'lat': [35.5, 36.5],
-        'lon': [-5.5, -5.5],
-        'name': 'Europe-Africa Border'
-    },
-    'asia_africa_line': {
-        'lat': [30.0, 32.0],
-        'lon': [33.0, 33.0],
-        'name': 'Asia-Africa Border'
-    }
+    'asia_europe_line': {'lat': [35.0, 42.0], 'lon': [28.0, 28.0], 'name': 'Asia-Europe Border'},
+    'europe_africa_line': {'lat': [35.5, 36.5], 'lon': [-5.5, -5.5], 'name': 'Europe-Africa Border'},
+    'asia_africa_line': {'lat': [30.0, 32.0], 'lon': [33.0, 33.0], 'name': 'Asia-Africa Border'}
 }
 
 # ==========================================
@@ -130,16 +83,11 @@ def calculate_bearing(lat1, lon1, lat2, lon2):
     return round(math.degrees(bearing), 1)
 
 def get_zone_info(lat, lon):
-    if lon < -60:
-        return "US Exclusive Economic Zone (EEZ)", "🇺🇸"
-    elif lon < -10:
-        return "International Waters - Atlantic", "🌊"
-    elif lon < -5.5:
-        return "Strait of Gibraltar", "🌉"
-    elif lon < 30:
-        return "Mediterranean Sea", "🌅"
-    else:
-        return "Eastern Mediterranean", "🌊"
+    if lon < -60: return "US Exclusive Economic Zone (EEZ)", "🇺🇸"
+    elif lon < -10: return "International Waters - Atlantic", "🌊"
+    elif lon < -5.5: return "Strait of Gibraltar", "🌉"
+    elif lon < 30: return "Mediterranean Sea", "🌅"
+    else: return "Eastern Mediterranean", "🌊"
 
 def check_border_crossing(lat, lon):
     crossings = []
@@ -147,92 +95,176 @@ def check_border_crossing(lat, lon):
         lat_min, lat_max = border['lat_range']
         lon_min, lon_max = border['lon_range']
         if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
-            crossings.append({
-                'border_id': border_id,
-                'name': border['name'],
-                'description': border['description'],
-                'color': border['color']
-            })
+            crossings.append({'border_id': border_id, 'name': border['name'], 'description': border['description'], 'color': border['color']})
     return crossings
 
 def get_continent(lat, lon):
-    if lat > 35 and lon > 25 and lon < 30:
-        return "Asia-Europe Border Zone"
-    elif lat > 35 and lat < 36.5 and lon > -6 and lon < -5:
-        return "Europe-Africa Border Zone"
-    elif lat > 30 and lat < 32 and lon > 32 and lon < 34:
-        return "Asia-Africa Border Zone"
-    elif lon < -30:
-        return "Atlantic Ocean (Mid-Atlantic)"
-    elif lon < -10:
-        return "Atlantic Ocean (Eastern)"
-    elif lon < 0:
-        return "Western Europe"
-    elif lon < 25:
-        return "Mediterranean Sea"
-    else:
-        return "Eastern Mediterranean / Asia"
+    if lat > 35 and lon > 25 and lon < 30: return "Asia-Europe Border Zone"
+    elif lat > 35 and lat < 36.5 and lon > -6 and lon < -5: return "Europe-Africa Border Zone"
+    elif lat > 30 and lat < 32 and lon > 32 and lon < 34: return "Asia-Africa Border Zone"
+    elif lon < -30: return "Atlantic Ocean (Mid-Atlantic)"
+    elif lon < -10: return "Atlantic Ocean (Eastern)"
+    elif lon < 0: return "Western Europe"
+    elif lon < 25: return "Mediterranean Sea"
+    else: return "Eastern Mediterranean / Asia"
 
 # ==========================================
-# FIXED SATELLITE IMAGE GENERATOR
+# REALISTIC SATELLITE IMAGE GENERATOR (200m view)
 # ==========================================
-def generate_satellite_image(lat, lon, mode='top_down'):
-    img_size = 400
-    img = np.zeros((img_size, img_size, 3), dtype=np.int32)
+def generate_satellite_image(lat, lon, mode='top_down', size=800):
+    """
+    Create a realistic-looking satellite image from 200m altitude.
+    Shows ocean, coastline, ship, clouds, and sun reflection.
+    """
+    # Create a blank image with PIL
+    img = Image.new('RGB', (size, size), color=(30, 80, 180))
+    draw = ImageDraw.Draw(img)
 
-    if lon < -30:  # Deep Atlantic
-        img[:, :, 0] = np.random.randint(20, 80, (img_size, img_size))
-        img[:, :, 1] = np.random.randint(60, 140, (img_size, img_size))
-        img[:, :, 2] = np.random.randint(150, 220, (img_size, img_size))
-        for i in range(img_size):
-            for j in range(img_size):
-                wave = int(30 * math.sin(i/20 + j/15) + 30 * math.sin(i/30 - j/25))
-                img[i, j, 1] = int(img[i, j, 1]) + wave
-                img[i, j, 2] = int(img[i, j, 2]) + wave
-    elif lon < -5:  # Coastal / Gibraltar
-        for i in range(img_size):
-            for j in range(img_size):
-                land = 0
-                if i > 200 and j > 100 and j < 300:
-                    land = 1
-                if i > 300 and j > 50 and j < 350:
-                    land = 1
-                if land:
-                    img[i, j, 0] = np.random.randint(80, 180)
-                    img[i, j, 1] = np.random.randint(100, 200)
-                    img[i, j, 2] = np.random.randint(20, 80)
-                else:
-                    img[i, j, 0] = np.random.randint(10, 60)
-                    img[i, j, 1] = np.random.randint(50, 120)
-                    img[i, j, 2] = np.random.randint(150, 220)
-    else:  # Mediterranean
-        for i in range(img_size):
-            for j in range(img_size):
-                depth_factor = 1 - (i / img_size)
-                img[i, j, 0] = np.random.randint(10, 50) + int(20 * depth_factor)
-                img[i, j, 1] = np.random.randint(40, 100) + int(40 * depth_factor)
-                img[i, j, 2] = np.random.randint(140, 200) + int(40 * depth_factor)
+    # Determine if we are near land (simplified)
+    # We'll define a few rough land regions: Mediterranean coast, Gibraltar, Atlantic coast
+    near_land = False
+    land_color = (60, 120, 60)  # green
+    if -5 <= lon <= 35 and 30 <= lat <= 38:
+        near_land = True  # Mediterranean / Europe / Africa
+    elif -10 <= lon <= -5 and 35 <= lat <= 37:
+        near_land = True  # Gibraltar
+    elif -20 <= lon <= -10 and 35 <= lat <= 42:
+        near_land = True  # Iberian coast / Western Europe
+    # Add more coarse regions if needed
 
-    # Ship marker (yellow)
-    center = img_size // 2
-    for i in range(center-10, center+10):
-        for j in range(center-10, center+10):
-            if (i-center)**2 + (j-center)**2 < 100:
-                img[i, j] = [255, 255, 0]
+    # Draw ocean gradient
+    for y in range(size):
+        # Depth gradient: darker at bottom, lighter at top (sun direction)
+        factor = y / size
+        r = int(20 + 30 * (1 - factor))
+        g = int(60 + 60 * (1 - factor))
+        b = int(140 + 60 * (1 - factor))
+        # Add wave pattern
+        for x in range(size):
+            wave = 15 * math.sin(x/30 + y/20) + 10 * math.sin(x/50 - y/40)
+            r_wave = max(0, min(255, r + wave))
+            g_wave = max(0, min(255, g + wave))
+            b_wave = max(0, min(255, b + wave))
+            draw.point((x, y), fill=(r_wave, g_wave, b_wave))
 
+    # If near land, draw a coastline (simple horizontal line with land above)
+    if near_land:
+        # Determine coastline position based on lat/lon
+        # For simplicity, we draw a generic coastline about 30% from the bottom
+        coast_y = int(size * 0.7)
+        # Draw land mass above coastline
+        land_rect = [0, 0, size, coast_y]
+        draw.rectangle(land_rect, fill=(80, 140, 60))
+        # Add some variations (hills, fields)
+        for i in range(50):
+            x0 = np.random.randint(0, size)
+            y0 = np.random.randint(0, coast_y)
+            r = np.random.randint(30, 100)
+            color = (np.random.randint(50, 150), np.random.randint(100, 200), np.random.randint(20, 80))
+            draw.ellipse((x0-r, y0-r, x0+r, y0+r), fill=color, outline=None)
+        # Draw coastline edge (lighter sand)
+        draw.line([(0, coast_y), (size, coast_y)], fill=(220, 200, 150), width=4)
+        # Add some waves near coast
+        for x in range(0, size, 10):
+            y_wave = coast_y + 10 * math.sin(x/20)
+            draw.point((x, y_wave), fill=(255, 255, 255, 100))
+
+    # Add sun reflection (glint)
+    glint_center = (int(size*0.7), int(size*0.2))
+    for i in range(20):
+        rad = 20 + i*10
+        alpha = int(100 - i*4)
+        if alpha > 0:
+            draw.ellipse((glint_center[0]-rad, glint_center[1]-rad, glint_center[0]+rad, glint_center[1]+rad),
+                         fill=(255, 255, 200, alpha), outline=None)
+
+    # Add clouds (semi-transparent)
+    for _ in range(10):
+        x0 = np.random.randint(0, size)
+        y0 = np.random.randint(0, size//2)  # clouds in upper half
+        r = np.random.randint(40, 120)
+        # Draw a cluster of circles for a cloud
+        for i in range(5):
+            dx = np.random.randint(-20, 20)
+            dy = np.random.randint(-10, 10)
+            rad2 = r - 20 + np.random.randint(0, 30)
+            # Use white with alpha, but PIL doesn't support alpha in draw.ellipse directly.
+            # We'll use a temporary image with alpha and compose later.
+            pass
+    # For simplicity, we'll draw white circles with low opacity using a separate layer
+    # We'll use a numpy array approach instead for better alpha support
+
+    # Convert to numpy for advanced composition
+    img_np = np.array(img).astype(np.float32)
+
+    # Add clouds with alpha blending
+    cloud_layer = np.zeros((size, size, 4), dtype=np.float32)
+    for _ in range(12):
+        cx = np.random.randint(0, size)
+        cy = np.random.randint(0, int(size*0.5))
+        r = np.random.randint(40, 100)
+        for i in range(8):
+            dx = np.random.randint(-r//2, r//2)
+            dy = np.random.randint(-r//2, r//2)
+            cr = r - 20 + np.random.randint(0, 30)
+            for x in range(int(cx+dx-cr), int(cx+dx+cr+1)):
+                for y in range(int(cy+dy-cr), int(cy+dy+cr+1)):
+                    if 0 <= x < size and 0 <= y < size:
+                        if (x - (cx+dx))**2 + (y - (cy+dy))**2 < cr**2:
+                            cloud_layer[y, x, :3] = [255, 255, 255]
+                            cloud_layer[y, x, 3] = 0.3 + 0.4 * np.random.random()
+    # Blend clouds
+    for y in range(size):
+        for x in range(size):
+            if cloud_layer[y, x, 3] > 0:
+                alpha = cloud_layer[y, x, 3]
+                img_np[y, x] = img_np[y, x] * (1 - alpha) + cloud_layer[y, x, :3] * alpha
+
+    # Draw the ship (icon)
+    ship_center_x = size // 2
+    ship_center_y = size // 2
+    # Draw hull (dark gray rectangle)
+    ship_width = 40
+    ship_height = 20
+    hull = [(ship_center_x - ship_width//2, ship_center_y - ship_height//2),
+            (ship_center_x + ship_width//2, ship_center_y + ship_height//2)]
+    draw.rectangle(hull, fill=(60, 60, 80), outline=(200, 200, 200))
+    # Draw superstructure (white)
+    draw.rectangle([(ship_center_x-10, ship_center_y-20), (ship_center_x+10, ship_center_y-10)], fill=(200, 200, 200), outline=(100, 100, 100))
+    # Draw chimney (red)
+    draw.rectangle([(ship_center_x-5, ship_center_y-35), (ship_center_x+5, ship_center_y-25)], fill=(200, 50, 50))
+    # Draw smoke (gray circles)
+    smoke_offsets = [(0, -40), (10, -45), (20, -50)]
+    for dx, dy in smoke_offsets:
+        draw.ellipse((ship_center_x+dx-8, ship_center_y+dy-8, ship_center_x+dx+8, ship_center_y+dy+8), fill=(180, 180, 180, 150))
+    # Draw wake (white lines behind ship)
+    for i in range(3):
+        x_start = ship_center_x - 30 - i*5
+        y_start = ship_center_y - 10 + i*5
+        x_end = ship_center_x - 60 - i*10
+        y_end = ship_center_y - 20 + i*12
+        draw.line([(x_start, y_start), (x_end, y_end)], fill=(255, 255, 255, 150), width=3)
+
+    # Convert back to numpy and ensure values are in range
+    img_final = np.array(img).astype(np.uint8)
+
+    # Apply mode adjustments (thermal / multispectral) using simple color mapping
     if mode == 'thermal':
-        img = img.astype(float)
-        img[:, :, 0] = np.clip(img[:, :, 0] * 0.8 + 100, 0, 255)
-        img[:, :, 1] = np.clip(img[:, :, 1] * 0.6, 0, 255)
-        img[:, :, 2] = np.clip(img[:, :, 2] * 0.4, 0, 255)
-        img = img.astype(np.int32)
+        # Convert to thermal: map blue to red/orange
+        img_final = np.array(img_final).astype(np.float32)
+        img_final[:, :, 0] = np.clip(img_final[:, :, 0] * 0.8 + 100, 0, 255)
+        img_final[:, :, 1] = np.clip(img_final[:, :, 1] * 0.3, 0, 255)
+        img_final[:, :, 2] = np.clip(img_final[:, :, 2] * 0.2, 0, 255)
+        img_final = img_final.astype(np.uint8)
     elif mode == 'multispectral':
-        img[:, :, 0] = np.clip(img[:, :, 0] * 1.2, 0, 255)
-        img[:, :, 1] = np.clip(img[:, :, 1] * 1.4, 0, 255)
-        img[:, :, 2] = np.clip(img[:, :, 2] * 1.6, 0, 255)
+        # Enhance colors (vegetation red, water blue)
+        img_final = np.array(img_final).astype(np.float32)
+        img_final[:, :, 0] = np.clip(img_final[:, :, 0] * 1.3, 0, 255)
+        img_final[:, :, 1] = np.clip(img_final[:, :, 1] * 1.2, 0, 255)
+        img_final[:, :, 2] = np.clip(img_final[:, :, 2] * 1.5, 0, 255)
+        img_final = img_final.astype(np.uint8)
 
-    img = np.clip(img, 0, 255).astype(np.uint8)
-    return img
+    return img_final
 
 # ==========================================
 # SIDEBAR CONTROLS
@@ -296,7 +328,7 @@ st.sidebar.subheader("🛰️ Satellite & GIS Controls")
 st.session_state.satellite_view_mode = st.sidebar.selectbox(
     "Satellite View Mode",
     ['top_down', 'multispectral', 'thermal'],
-    format_func=lambda x: {'top_down': 'Top-Down (20m)', 'multispectral': 'Multispectral', 'thermal': 'Thermal'}[x]
+    format_func=lambda x: {'top_down': 'Top-Down (200m)', 'multispectral': 'Multispectral', 'thermal': 'Thermal'}[x]
 )
 show_borders = st.sidebar.checkbox("Show Continental Borders", value=True)
 show_ais = st.sidebar.checkbox("Show AIS Targets", value=True)
@@ -498,18 +530,18 @@ e5.metric("⚠️ Risk Score", f"{risk_score}/100", delta=risk_level, delta_colo
 st.markdown("---")
 
 # ==========================================
-# SATELLITE IMAGE
+# SATELLITE IMAGE - EARTH OBSERVER (200m view)
 # ==========================================
-st.markdown("### 🛰️ Earth Observer - Satellite Imagery (20m Top-Down View)")
-sat_img = generate_satellite_image(vessel_current_lat, vessel_current_lon, mode=st.session_state.satellite_view_mode)
+st.markdown("### 🛰️ Earth Observer - Satellite Imagery (200m Altitude)")
+sat_img = generate_satellite_image(vessel_current_lat, vessel_current_lon, mode=st.session_state.satellite_view_mode, size=800)
 col_img1, col_img2, col_img3 = st.columns([1, 2, 1])
 with col_img2:
-    st.image(sat_img, caption=f"Satellite View - {st.session_state.satellite_view_mode.upper()} Mode | Position: {vessel_current_lat:.2f}°N, {abs(vessel_current_lon):.2f}°{'W' if vessel_current_lon < 0 else 'E'}", use_container_width=True)
-    st.caption("🟡 Yellow marker indicates vessel position | Real-time Earth observation from 20m altitude")
+    st.image(sat_img, caption=f"Satellite View - {st.session_state.satellite_view_mode.upper()} Mode | Position: {vessel_current_lat:.2f}°N, {abs(vessel_current_lon):.2f}°{'W' if vessel_current_lon < 0 else 'E'} | Altitude: 200m", use_container_width=True)
+    st.caption("🟡 Ship icon visible | Realistic simulation of Earth observation from 200m altitude")
 sat_info_col1, sat_info_col2, sat_info_col3 = st.columns(3)
-sat_info_col1.metric("Satellite", "Copernicus Sentinel-2", delta="Active")
-sat_info_col2.metric("Altitude", "20 meters", delta="Top-Down View")
-sat_info_col3.metric("Resolution", "10m/pixel", delta="Real-time")
+sat_info_col1.metric("Satellite", "Copernicus Sentinel-2 (simulated)", delta="Active")
+sat_info_col2.metric("Altitude", "200 meters", delta="Wide-area view")
+sat_info_col3.metric("Resolution", "2m/pixel", delta="Enhanced")
 st.markdown("---")
 
 # ==========================================
@@ -582,20 +614,19 @@ if show_ais:
         tooltip={"text": "Vessel: {vessel_name}\nType: {type}"}
     )
 
-# ========== BIGGER SHIP MARKER ==========
-# Increased radius to make the ship clearly visible from 200m altitude
+# Bigger ship marker for 200m view
 layer_target_vessel = pdk.Layer(
     'ScatterplotLayer', 
     data=your_vessel_df,
     get_position='[longitude, latitude]',
     get_color=[255, 255, 0, 255],    
-    get_radius=180000,  # Increased from 120k to 180k for better visibility
+    get_radius=180000,
     pickable=True,
     tooltip={"text": "{vessel_name}\nType: {type}\nProgress: " + str(round(st.session_state.live_progress, 1)) + "%"}
 )
 
 # Risk zone
-risk_radius = 200000 + (risk_score / 100) * 300000  # Also increased
+risk_radius = 200000 + (risk_score / 100) * 300000
 risk_color_r = 255 if risk_score >= 50 else 255 if risk_score >= 30 else 0
 risk_color_g = 0 if risk_score >= 50 else 200 if risk_score >= 30 else 255
 risk_color_b = 0 if risk_score >= 50 else 0 if risk_score >= 30 else 0
@@ -619,20 +650,18 @@ if layer_trail: active_layers.append(layer_trail)
 if layer_borders: active_layers.append(layer_borders)
 if layer_traffic: active_layers.append(layer_traffic)
 
-# Map center & zoom - now with wider view (zoom=3.5 gives a broader ocean view)
+# Map center & zoom - wide view (zoom=3.5)
 map_center_lat = vessel_current_lat
 map_center_lon = vessel_current_lon
-# For a view from 200 meters, we use a lower zoom (more zoomed out)
-# Zoom level 3.5 provides a good balance: you see the ship, surrounding water, and coastlines/borders
-zoom_level = 3.5  # Fixed to see wide area, but you can adjust based on progress if desired
+zoom_level = 3.5
 
 st.pydeck_chart(pdk.Deck(
-    map_style='mapbox://styles/mapbox/satellite-streets-v11',  # Shows borders, coastlines, and labels
+    map_style='mapbox://styles/mapbox/satellite-streets-v11',
     initial_view_state=pdk.ViewState(
         latitude=map_center_lat,
         longitude=map_center_lon,
         zoom=zoom_level,
-        pitch=0,          # Top-down view
+        pitch=0,
         bearing=0
     ),
     layers=active_layers
