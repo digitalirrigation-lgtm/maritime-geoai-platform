@@ -28,11 +28,13 @@ white_color, trail_green = 255, 127
 if 'live_progress' not in st.session_state:
     st.session_state.live_progress = 35.0
 if 'simulation_running' not in st.session_state:
-    st.session_state.simulation_running = False
+    st.session_state.simulation_running = True  # Start automatically running
 if 'time_counter' not in st.session_state:
     st.session_state.time_counter = 0
 if 'traffic_offset' not in st.session_state:
     st.session_state.traffic_offset = np.random.uniform(-3, 3, 4)
+if 'last_update_time' not in st.session_state:
+    st.session_state.last_update_time = time.time()
 
 # ==========================================
 # SIDEBAR CONTROL ROOM
@@ -45,18 +47,62 @@ sim_toggle = st.sidebar.button(
 
 if sim_toggle:
     st.session_state.simulation_running = not st.session_state.simulation_running
+    if st.session_state.simulation_running:
+        st.session_state.last_update_time = time.time()
 
 vessel_speed_knots = st.sidebar.slider("Vessel Cruising Speed (Knots)", 5.0, 35.0, 20.0, 0.5)
 
+# Auto-update progress when simulation is running
+if st.session_state.simulation_running:
+    current_time = time.time()
+    time_delta = current_time - st.session_state.last_update_time
+    st.session_state.last_update_time = current_time
+    
+    # Calculate progress increment based on speed and time
+    # 0.15% per 0.1 second at 20 knots, scaled by speed
+    speed_factor = vessel_speed_knots / 20.0
+    progress_increment = 0.15 * speed_factor * (time_delta / 0.1)
+    
+    # Update progress
+    if st.session_state.live_progress < 100.0:
+        st.session_state.live_progress = min(100.0, st.session_state.live_progress + progress_increment)
+        st.session_state.time_counter += 1
+        
+        # Update traffic positions periodically
+        if st.session_state.time_counter % 30 == 0:
+            st.session_state.traffic_offset = np.random.uniform(-3, 3, 4)
+    else:
+        st.session_state.simulation_running = False
+        st.success("🎉 Voyage Complete! Ship has arrived at destination!")
+
+# Manual progress slider (overrides auto-update if moved)
 voyage_progress = st.sidebar.slider(
     label="Vessel Voyage Progress (%)", 
     min_value=0, 
     max_value=100, 
     value=int(st.session_state.live_progress)
 )
-st.session_state.live_progress = float(voyage_progress)
+# Only update if the slider was manually moved
+if voyage_progress != int(st.session_state.live_progress):
+    st.session_state.live_progress = float(voyage_progress)
 
 cargo_profile = st.sidebar.selectbox("Cargo Priority Profile", ["Standard Freight", "High-Value Express", "Eco-Friendly Slow Steaming"])
+
+# Add auto-play toggle in sidebar
+auto_play = st.sidebar.checkbox("🔄 Auto-Advance Voyage", value=st.session_state.simulation_running)
+if auto_play != st.session_state.simulation_running:
+    st.session_state.simulation_running = auto_play
+    if st.session_state.simulation_running:
+        st.session_state.last_update_time = time.time()
+
+# Reset button
+if st.sidebar.button("🔄 Reset Voyage"):
+    st.session_state.live_progress = 0.0
+    st.session_state.simulation_running = True
+    st.session_state.time_counter = 0
+    st.session_state.traffic_offset = np.random.uniform(-3, 3, 4)
+    st.session_state.last_update_time = time.time()
+    st.rerun()
 
 # ==========================================
 # GEOSPATIAL MATHEMATICS: HAVERSINE DISTANCE
@@ -90,7 +136,7 @@ risk_color = "inverse" if abs(simulated_depth_meters) < 18.0 else "off"
 # ==========================================
 try:
     api_url = f"https://api.open-meteo.com/v1/forecast?latitude={vessel_current_lat}&longitude={vessel_current_lon}&current_weather=true"
-    response = requests.get(api_url, timeout=5).json()
+    response = requests.get(api_url, timeout=3).json()
     if 'current_weather' in response and 'windspeed' in response['current_weather']:
         real_wind_kmh = response['current_weather']['windspeed']
         live_wind_knots = round(real_wind_kmh * 0.539957, 1)
@@ -111,13 +157,9 @@ else:
 # ==========================================
 # 🚢 FLEET INTERPOLATION SYSTEM (MULTIPLE CARGO SHIPS)
 # ==========================================
-# Update traffic offset periodically
-if st.session_state.time_counter % 50 == 0:
-    st.session_state.traffic_offset = np.random.uniform(-3, 3, 4)
-
 traffic_offset = st.session_state.traffic_offset
 
-# Create moving traffic vessels with dynamic positions - FIXED LENGTHS
+# Create moving traffic vessels with dynamic positions
 other_traffic_df = pd.DataFrame({
     'latitude': [
         38.5 + traffic_offset[0], 
@@ -204,6 +246,12 @@ analytics_df = pd.DataFrame(depth_data).set_index('Voyage Progress (%)')
 # ==========================================
 # RENDER LAYOUT
 # ==========================================
+# Show live status indicator
+if st.session_state.simulation_running:
+    st.sidebar.success("🟢 LIVE TELEMETRY ACTIVE")
+else:
+    st.sidebar.warning("⏸️ TELEMETRY PAUSED")
+
 m1, m2, m3 = st.columns(3)
 m1.metric("🗺️ Remaining Distance to Destination", f"{distance_remaining_nm} NM", delta=f"{distance_covered_nm} NM Covered")
 m2.metric("⏱️ Dynamic ETA Countdown", f"{days}d {hours}h", delta=f"Speed: {vessel_speed_knots} kts")
@@ -221,7 +269,6 @@ st.markdown("---")
 # ==========================================
 # ORBITAL RADAR MAP COMPONENT (TOP-DOWN DEEP OCEAN VIEW)
 # ==========================================
-# Enhanced layers with better visibility
 layer_ports = pdk.Layer(
     'ScatterplotLayer', 
     data=ship_ports_df, 
@@ -278,11 +325,11 @@ if layer_trail is not None:
     active_layers.append(layer_trail)
 active_layers.append(layer_target_vessel)
 
-# Center map on ship's current position for dynamic viewing
+# Center map on ship's current position
 map_center_lat = vessel_current_lat
 map_center_lon = vessel_current_lon
 
-# Calculate zoom level based on progress - zoom in more when near ports
+# Calculate zoom level based on progress
 if st.session_state.live_progress < 10 or st.session_state.live_progress > 90:
     zoom_level = 4.5
 else:
@@ -306,10 +353,19 @@ st.pydeck_chart(pdk.Deck(
 st.markdown("### 📈 Voyage Time-Series Bathymetric Risk Predictor")
 st.line_chart(analytics_df['Ocean Depth (m)'])
 
-# Live telemetry status
+# Live telemetry status with animated indicator
 st.markdown("### 📡 Active Satellite System Telemetry Stream")
 col1, col2, col3 = st.columns(3)
-col1.metric("Vessel Status", "🟢 Track Online", delta="Active")
+
+# Animated status based on simulation state
+if st.session_state.simulation_running:
+    status_icon = "🟢 LIVE"
+    status_delta = "Streaming"
+else:
+    status_icon = "⏸️ PAUSED"
+    status_delta = "Stopped"
+
+col1.metric("Vessel Status", f"{status_icon}", delta=status_delta)
 col2.metric("Voyage Progress", f"{round(st.session_state.live_progress, 1)}%", delta=f"{distance_covered_nm} NM traveled")
 col3.metric("Core Data Source", "📡 " + ("Live Satellite" if "Connected" in data_source_label else "Backup"), delta=data_source_label)
 
@@ -322,26 +378,9 @@ st.markdown("### ⏱️ Real-Time ETA Countdown")
 progress_bar = st.progress(st.session_state.live_progress / 100.0)
 st.write(f"**Distance Remaining:** {distance_remaining_nm} NM | **Estimated Arrival:** {days}d {hours}h at {vessel_speed_knots} knots")
 
-# ==========================================
-# AUTOMATION PROCESSING LOOP
-# ==========================================
-if st.session_state.simulation_running:
-    if st.session_state.live_progress < 100.0:
-        st.session_state.live_progress = min(100.0, st.session_state.live_progress + 0.15)
-        st.session_state.time_counter += 1
-        time.sleep(0.1)
-        st.rerun()
-    else:
-        st.session_state.simulation_running = False
-        st.success("🎉 Voyage Complete! Ship has arrived at destination!")
-        st.balloons()
-
-# Add a reset button
-if st.sidebar.button("🔄 Reset Voyage"):
-    st.session_state.live_progress = 0.0
-    st.session_state.simulation_running = False
-    st.session_state.time_counter = 0
-    st.session_state.traffic_offset = np.random.uniform(-3, 3, 4)
+# Auto-refresh the page when simulation is running
+if st.session_state.simulation_running and st.session_state.live_progress < 100.0:
+    time.sleep(0.05)  # Small delay for smooth animation
     st.rerun()
 
 # Display footer
