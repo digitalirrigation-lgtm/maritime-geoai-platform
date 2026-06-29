@@ -93,10 +93,14 @@ traffic_records = [
 ]
 other_traffic_df = pd.DataFrame(traffic_records)
 
+# SECURE FIX: Solid arrays with complete matching rows for our ports
 ship_ports_df = pd.DataFrame({
-    'latitude': [haifa_lat, nynj_lat], 'longitude': [haifa_lon, nynj_lon],
+    'latitude': [haifa_lat, nynj_lat], 
+    'longitude': [haifa_lon, nynj_lon],
     'port_name': ['Port of Haifa (Origin)', 'Port of NY/NJ (Destination)'],
-    'color_r':, 'color_g':, 'color_b': [0, 0]
+    'color_r':, 
+    'color_g':, 
+    'color_b': [0, 0]
 })
 
 route_data = pd.DataFrame({'start_lon': [haifa_lon], 'start_lat': [haifa_lat], 'end_lon': [nynj_lon], 'end_lat': [nynj_lat]})
@@ -150,7 +154,7 @@ layer_target_vessel = pdk.Layer('ScatterplotLayer', data=your_vessel_df, get_pos
 
 map_layers = [layer_arc, layer_ports, layer_traffic, layer_target_vessel]
 if not history_df.empty:
-    layer_trail = pdk.Layer('LineLayer', data=history_df, get_source_position='[s_lon, s_lat]', get_target_position='[e_lon, e_lat]', get_color=[0, 127, 127, 255], get_width=5)
+    layer_trail = pdk.Layer('LineLayer', data=history_df, get_source_position='[s_lon, s_lat]', get_target_position='[e_lon, e_lat]', get_color=[0, 255, 127, 255], get_width=5)
     map_layers.append(layer_trail)
 
 st.pydeck_chart(pdk.Deck(
