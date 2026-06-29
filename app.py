@@ -40,6 +40,14 @@ if 'risk_history' not in st.session_state:
     st.session_state.risk_history = []
 
 # ==========================================
+# GEOSPATIAL MATHEMATICS
+# ==========================================
+def calculate_distance(lat1, lon1, lat2, lon2):
+    r_lat1, r_lon1, r_lat2, r_lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+    a = math.sin((r_lat2 - r_lat1)/2)**2 + math.cos(r_lat1) * math.cos(r_lat2) * math.sin((r_lon2 - r_lon1)/2)**2
+    return round(2 * math.asin(math.sqrt(a)) * 3440.065, 1)
+
+# ==========================================
 # SIDEBAR CONTROL ROOM
 # ==========================================
 st.sidebar.header("🕹️ Fleet Control Center")
@@ -100,22 +108,42 @@ if st.sidebar.button("🔄 Reset Voyage"):
     st.session_state.risk_history = []
     st.rerun()
 
-# ==========================================
-# GEOSPATIAL MATHEMATICS
-# ==========================================
-def calculate_distance(lat1, lon1, lat2, lon2):
-    r_lat1, r_lon1, r_lat2, r_lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
-    a = math.sin((r_lat2 - r_lat1)/2)**2 + math.cos(r_lat1) * math.cos(r_lat2) * math.sin((r_lon2 - r_lon1)/2)**2
-    return round(2 * math.asin(math.sqrt(a)) * 3440.065, 1)
-
+# Calculate current position
 total_trip_distance = calculate_distance(haifa_lat, haifa_lon, nynj_lat, nynj_lon)
-
 fraction = st.session_state.live_progress / 100.0
 vessel_current_lat = haifa_lat + (nynj_lat - haifa_lat) * fraction
 vessel_current_lon = haifa_lon + (nynj_lon - haifa_lon) * fraction
-
 distance_remaining_nm = calculate_distance(vessel_current_lat, vessel_current_lon, nynj_lat, nynj_lon)
 distance_covered_nm = round(total_trip_distance - distance_remaining_nm, 1)
+
+# ==========================================
+# 🛰️ LIVE API WEATHER (MUST BE BEFORE RISK CALCULATION)
+# ==========================================
+try:
+    api_url = f"https://api.open-meteo.com/v1/forecast?latitude={vessel_current_lat}&longitude={vessel_current_lon}&current_weather=true"
+    response = requests.get(api_url, timeout=3).json()
+    if 'current_weather' in response and 'windspeed' in response['current_weather']:
+        real_wind_kmh = response['current_weather']['windspeed']
+        live_wind_knots = round(real_wind_kmh * 0.539957, 1)
+        data_source_label = "📡 Connected Live to Satellite Open-Meteo Server Feed"
+    else:
+        raise Exception("Weather data not available")
+except:
+    live_wind_knots = round(12.0 + (math.sin(fraction * math.pi) * 22.0), 1)
+    data_source_label = "⚠️ Local Telemetry Backup System Online"
+
+# Weather alert based on wind
+if live_wind_knots >= 24.0:
+    weather_alert, weather_color = "🚨 HEAVY WEATHER ALERT", "inverse"
+elif live_wind_knots >= 15.0:
+    weather_alert, weather_color = "⚠️ Moderate Chop", "off"
+else:
+    weather_alert, weather_color = "✅ Calm Sea Conditions", "normal"
+
+# Bathymetry calculation
+simulated_depth_meters = round(-15.0 - (math.sin(fraction * math.pi) * 4985.0), 1)
+bathymetry_status = "🚨 CRITICAL SHALLOW RISK" if abs(simulated_depth_meters) < 18.0 else "✅ Safe Deep Water"
+risk_color = "inverse" if abs(simulated_depth_meters) < 18.0 else "off"
 
 # ==========================================
 # RISK PREDICTION ENGINE
@@ -152,7 +180,6 @@ def calculate_risk_score(progress, wind_speed, depth, speed):
         speed_risk = speed * 0.5
     
     # Proximity to ports (0-20 points)
-    # Higher risk when near ports (congestion)
     if progress < 10:
         port_risk = 20 - progress * 2
     elif progress > 90:
@@ -173,29 +200,30 @@ def get_risk_level(score):
     else:
         return "🟢 LOW", "normal"
 
-def get_risk_factors(score):
+def get_risk_factors(score, progress, wind_speed, depth, speed):
     factors = []
     if score >= 70:
         factors.append("🚨 Immediate action required")
     if score >= 50:
         factors.append("⚠️ Caution advised")
-    if abs(simulated_depth_meters) < 100:
+    if abs(depth) < 100:
         factors.append("🌊 Shallow waters ahead")
-    if live_wind_knots >= 20:
+    if wind_speed >= 20:
         factors.append("💨 Strong winds detected")
-    if vessel_speed_knots > 25:
+    if speed > 25:
         factors.append("⚡ High speed in sensitive area")
-    if st.session_state.live_progress < 10:
-        factors.append("🏗️ Port congestion zone")
-    elif st.session_state.live_progress > 90:
-        factors.append("🏗️ Approaching busy port")
+    if progress < 10:
+        factors.append("🏗️ Port congestion zone - Departure")
+    elif progress > 90:
+        factors.append("🏗️ Approaching busy port - Arrival")
+    if 40 < progress < 60:
+        factors.append("🌊 Mid-ocean crossing - Monitor conditions")
     return factors
 
-# Calculate current risk
-simulated_depth_meters = round(-15.0 - (math.sin(fraction * math.pi) * 4985.0), 1)
+# Calculate current risk (NOW live_wind_knots is defined)
 risk_score = calculate_risk_score(st.session_state.live_progress, live_wind_knots, simulated_depth_meters, vessel_speed_knots)
-risk_level, risk_color = get_risk_level(risk_score)
-risk_factors = get_risk_factors(risk_score)
+risk_level, risk_delta_color = get_risk_level(risk_score)
+risk_factors = get_risk_factors(risk_score, st.session_state.live_progress, live_wind_knots, simulated_depth_meters, vessel_speed_knots)
 
 # Store risk history
 st.session_state.risk_history.append({
@@ -205,29 +233,6 @@ st.session_state.risk_history.append({
 })
 if len(st.session_state.risk_history) > 100:
     st.session_state.risk_history = st.session_state.risk_history[-100:]
-
-# ==========================================
-# 🛰️ LIVE API WEATHER
-# ==========================================
-try:
-    api_url = f"https://api.open-meteo.com/v1/forecast?latitude={vessel_current_lat}&longitude={vessel_current_lon}&current_weather=true"
-    response = requests.get(api_url, timeout=3).json()
-    if 'current_weather' in response and 'windspeed' in response['current_weather']:
-        real_wind_kmh = response['current_weather']['windspeed']
-        live_wind_knots = round(real_wind_kmh * 0.539957, 1)
-        data_source_label = "📡 Connected Live to Satellite Open-Meteo Server Feed"
-    else:
-        raise Exception("Weather data not available")
-except:
-    live_wind_knots = round(12.0 + (math.sin(fraction * math.pi) * 22.0), 1)
-    data_source_label = "⚠️ Local Telemetry Backup System Online"
-
-if live_wind_knots >= 24.0:
-    weather_alert, weather_color = "🚨 HEAVY WEATHER ALERT", "inverse"
-elif live_wind_knots >= 15.0:
-    weather_alert, weather_color = "⚠️ Moderate Chop", "off"
-else:
-    weather_alert, weather_color = "✅ Calm Sea Conditions", "normal"
 
 # ==========================================
 # 🚢 FLEET DATA
@@ -277,32 +282,25 @@ route_data = pd.DataFrame({
 # ==========================================
 # CREATE BORDERS AND BOUNDARIES
 # ==========================================
-# Define major ocean borders and shipping lanes
 borders_data = pd.DataFrame([
-    # Mediterranean Sea border
     {'lat1': 30.0, 'lon1': 30.0, 'lat2': 30.0, 'lon2': 40.0, 'name': 'Mediterranean Sea'},
     {'lat1': 30.0, 'lon1': 40.0, 'lat2': 35.0, 'lon2': 40.0, 'name': 'Mediterranean Sea'},
-    # Strait of Gibraltar
     {'lat1': 35.0, 'lon1': -5.5, 'lat2': 36.0, 'lon2': -5.5, 'name': 'Strait of Gibraltar'},
-    # Atlantic Ocean border
     {'lat1': 36.0, 'lon1': -10.0, 'lat2': 40.0, 'lon2': -10.0, 'name': 'Atlantic Ocean'},
-    # US East Coast
     {'lat1': 40.0, 'lon1': -75.0, 'lat2': 42.0, 'lon2': -75.0, 'name': 'US Coastal Waters'},
     {'lat1': 42.0, 'lon1': -75.0, 'lat2': 42.0, 'lon2': -70.0, 'name': 'US Coastal Waters'},
 ])
 
-# Create major shipping lane boundaries (great circle route corridor)
+# Shipping lane corridor
 corridor_points = []
 for i in range(11):
     f = i / 10.0
     lat = haifa_lat + (nynj_lat - haifa_lat) * f
     lon = haifa_lon + (nynj_lon - haifa_lon) * f
-    # Add some offset for corridor width
     offset_lat = 2.0 * math.sin(f * math.pi)
     offset_lon = 2.0 * math.cos(f * math.pi)
     corridor_points.append({'lat': lat + offset_lat, 'lon': lon + offset_lon})
     corridor_points.append({'lat': lat - offset_lat, 'lon': lon - offset_lon})
-
 corridor_df = pd.DataFrame(corridor_points)
 
 # Voyage calculations
@@ -357,9 +355,9 @@ else:
     st.sidebar.warning("⏸️ TELEMETRY PAUSED")
 
 # Top risk banner
+risk_bg_color = '#ff4444' if risk_score >= 50 else '#ffaa00' if risk_score >= 30 else '#44ff44'
 st.markdown(f"""
-<div style="background-color: {'#ff4444' if risk_score >= 50 else '#ffaa00' if risk_score >= 30 else '#44ff44'}; 
-            padding: 10px; border-radius: 5px; margin-bottom: 10px;">
+<div style="background-color: {risk_bg_color}; padding: 10px; border-radius: 5px; margin-bottom: 10px;">
     <h3 style="color: white; margin: 0;">⚠️ RISK PREDICTION: {risk_level} (Score: {risk_score}/100)</h3>
 </div>
 """, unsafe_allow_html=True)
@@ -379,14 +377,13 @@ e1.metric("⛽ Fuel ETE", f"{predicted_fuel_mt} MT")
 e2.metric("🌱 CO2 Impact", f"{total_co2_emissions_mt} MT")
 e3.metric("🌊 Depth", f"{simulated_depth_meters} m", delta=bathymetry_status, delta_color=risk_color)
 e4.metric("💨 Wind", f"{live_wind_knots} kts", delta=weather_alert, delta_color=weather_color, help=data_source_label)
-e5.metric("⚠️ Risk Score", f"{risk_score}/100", delta=risk_level, delta_color=risk_color)
+e5.metric("⚠️ Risk Score", f"{risk_score}/100", delta=risk_level, delta_color=risk_delta_color)
 
 st.markdown("---")
 
 # ==========================================
 # ENHANCED MAP WITH BORDERS AND 20M VIEW
 # ==========================================
-# Layer for borders
 layer_borders = pdk.Layer(
     'LineLayer',
     data=borders_data,
@@ -396,7 +393,6 @@ layer_borders = pdk.Layer(
     get_width=2
 )
 
-# Shipping lane corridor
 layer_corridor = pdk.Layer(
     'ScatterplotLayer',
     data=corridor_df,
@@ -457,8 +453,8 @@ layer_target_vessel = pdk.Layer(
     tooltip={"text": "{vessel_name}\nType: {type}\nProgress: " + str(round(st.session_state.live_progress, 1)) + "%"}
 )
 
-# Add risk overlay - colored circle around ship based on risk level
-risk_radius = 150000 + (risk_score / 100) * 200000  # Radius increases with risk
+# Risk zone overlay
+risk_radius = 150000 + (risk_score / 100) * 200000
 risk_color_r = 255 if risk_score >= 50 else 255 if risk_score >= 30 else 0
 risk_color_g = 0 if risk_score >= 50 else 200 if risk_score >= 30 else 255
 risk_color_b = 0 if risk_score >= 50 else 0 if risk_score >= 30 else 0
@@ -488,25 +484,24 @@ map_center_lon = vessel_current_lon
 
 # Zoom level - closer view from 20 meters above
 if st.session_state.live_progress < 10 or st.session_state.live_progress > 90:
-    zoom_level = 5.5  # Closer view near ports
+    zoom_level = 5.5
 else:
-    zoom_level = 4.5  # Standard view
+    zoom_level = 4.5
 
-# Top-down satellite view from 20 meters
 st.pydeck_chart(pdk.Deck(
     map_style='mapbox://styles/mapbox/satellite-streets-v11',
     initial_view_state=pdk.ViewState(
         latitude=map_center_lat, 
         longitude=map_center_lon, 
         zoom=zoom_level,        
-        pitch=0,  # Top-down view
+        pitch=0,
         bearing=0
     ),
     layers=active_layers,
     tooltip={"text": "{vessel_name}\nClassification: {type}"}
 ))
 
-# Map legend and info
+# Map legend
 st.markdown("### 🗺️ Map Legend")
 legend_col1, legend_col2, legend_col3, legend_col4 = st.columns(4)
 legend_col1.markdown("🟡 **Your Ship** (Yellow)")
@@ -514,11 +509,10 @@ legend_col2.markdown("🔵 **Shipping Lane** (Blue)")
 legend_col3.markdown("🟢 **Ports** (Green/Red)")
 legend_col4.markdown(f"🔴 **Risk Zone** ({risk_level})")
 
-# Show border crossing info
+# Border information
 st.markdown("### 🌍 Border & Navigation Information")
 border_col1, border_col2 = st.columns(2)
 
-# Determine which border the ship is near
 current_region = "Mediterranean Sea"
 if vessel_current_lon < -5.5 and vessel_current_lon > -10:
     current_region = "Strait of Gibraltar"
@@ -528,7 +522,7 @@ elif vessel_current_lon < -60:
     current_region = "US Coastal Waters"
 
 border_col1.info(f"📍 **Current Region:** {current_region}")
-border_col2.info(f"🗺️ **Position:** {vessel_current_lat:.2f}°N, {vessel_current_lon:.2f}°W")
+border_col2.info(f"🗺️ **Position:** {vessel_current_lat:.2f}°N, {abs(vessel_current_lon):.2f}°{'W' if vessel_current_lon < 0 else 'E'}")
 
 # ==========================================
 # RISK HISTORY CHART
