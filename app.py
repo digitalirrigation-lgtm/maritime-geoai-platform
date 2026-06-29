@@ -93,14 +93,14 @@ traffic_records = [
 ]
 other_traffic_df = pd.DataFrame(traffic_records)
 
-# SECURE FIX: Solid arrays with complete matching rows for our ports
+# UNBREAKABLE STRING ARRAYS TO PREVENT DATA STRIPPING GLITCHES
 ship_ports_df = pd.DataFrame({
     'latitude': [haifa_lat, nynj_lat], 
     'longitude': [haifa_lon, nynj_lon],
     'port_name': ['Port of Haifa (Origin)', 'Port of NY/NJ (Destination)'],
-    'color_r':, 
-    'color_g':, 
-    'color_b': [0, 0]
+    'color_r': [int("0"), int("255")], 
+    'color_g': [int("255"), int("0")], 
+    'color_b': [int("0"), int("0")]
 })
 
 route_data = pd.DataFrame({'start_lon': [haifa_lon], 'start_lat': [haifa_lat], 'end_lon': [nynj_lon], 'end_lat': [nynj_lat]})
@@ -148,13 +148,31 @@ e4.metric("💨 Live Wind at Ship Location", f"{live_wind_knots} kts", delta=wea
 st.markdown("---")
 
 layer_ports = pdk.Layer('ScatterplotLayer', data=ship_ports_df, get_position='[longitude, latitude]', get_color='[color_r, color_g, color_b, 200]', get_radius=120000)
-layer_arc = pdk.Layer('ArcLayer', data=route_data, get_source_position='[start_lon, start_lat]', get_target_position='[end_lon, end_lat]', get_source_color=[0, 191, 255, 180], get_target_color=[255, 140, 0, 180], get_width=3)
-layer_traffic = pdk.Layer('ScatterplotLayer', data=other_traffic_df, get_position='[longitude, latitude]', get_color=[128, 128, 128, 200], get_radius=120000, pickable=True)
-layer_target_vessel = pdk.Layer('ScatterplotLayer', data=your_vessel_df, get_position='[longitude, latitude]', get_color=[255, 255, 0, 255], get_radius=160000, pickable=True)
+
+layer_arc = pdk.Layer(
+    'ArcLayer', data=route_data, 
+    get_source_position='[start_lon, start_lat]', get_target_position='[end_lon, end_lat]', 
+    get_source_color=[int("0"), int("191"), int("255"), int("180")], 
+    get_target_color=[int("255"), int("140"), int("0"), int("180")], 
+    get_width=3
+)
+
+layer_traffic = pdk.Layer(
+    'ScatterplotLayer', data=other_traffic_df, get_position='[longitude, latitude]', 
+    get_color=[int("128"), int("128"), int("128"), int("200")], get_radius=120000, pickable=True
+)
+
+layer_target_vessel = pdk.Layer(
+    'ScatterplotLayer', data=your_vessel_df, get_position='[longitude, latitude]', 
+    get_color=[int("255"), int("255"), int("0"), int("255")], get_radius=160000, pickable=True
+)
 
 map_layers = [layer_arc, layer_ports, layer_traffic, layer_target_vessel]
 if not history_df.empty:
-    layer_trail = pdk.Layer('LineLayer', data=history_df, get_source_position='[s_lon, s_lat]', get_target_position='[e_lon, e_lat]', get_color=[0, 255, 127, 255], get_width=5)
+    layer_trail = pdk.Layer(
+        'LineLayer', data=history_df, get_source_position='[s_lon, s_lat]', get_target_position='[e_lon, e_lat]', 
+        get_color=[int("0"), int("127"), int("127"), int("255")], get_width=5
+    )
     map_layers.append(layer_trail)
 
 st.pydeck_chart(pdk.Deck(
