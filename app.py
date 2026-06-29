@@ -5,28 +5,34 @@ import math
 import time
 import requests
 
+# Page configuration
 st.set_page_config(page_title="Maritime Intelligence", layout="wide")
 st.title("🚢 Enterprise Maritime GeoAI Platform")
 st.subheader("Live Vessel Tracking & Intelligent Route Analytics")
 
+# Static coordinates
 haifa_lat, haifa_lon = 32.8191, 34.9983
 nynj_lat, nynj_lon = 40.6815, -74.1145
 
-# Initialize session state variables
+# Initialize session states
 if 'live_progress' not in st.session_state:
     st.session_state.live_progress = 0.0
 if 'simulation_running' not in st.session_state:
     st.session_state.simulation_running = False
 
 # Main simulation loop
-if st.session_state.simulation_running:
-    if st.session_state.live_progress < 100.0:
-        st.session_state.live_progress += 1.0
-        time.sleep(0.5)
-        st.experimental_rerun()
-    else:
-        st.session_state.simulation_running = False
-        st.experimental_rerun()
+def run_simulation():
+    if st.session_state.simulation_running:
+        if st.session_state.live_progress < 100.0:
+            st.session_state.live_progress += 1.0
+            time.sleep(0.5)
+            st.experimental_rerun()
+        else:
+            st.session_state.simulation_running = False
+            st.experimental_rerun()
+
+# Run simulation if active
+run_simulation()
 
 # Sidebar controls
 st.sidebar.header("🕹️ Fleet Control Center")
@@ -97,8 +103,10 @@ else:
 
 # DataFrames for vessels
 your_vessel_df = pd.DataFrame({
-    'latitude': [vessel_current_lat], 'longitude': [vessel_current_lon],
-    'vessel_name': ['⭐ MV-YOUR-CARGO (Israel -> USA)'], 'type': ['Target Asset']
+    'latitude': [vessel_current_lat],
+    'longitude': [vessel_current_lon],
+    'vessel_name': ['⭐ MV-YOUR-CARGO (Israel -> USA)'],
+    'type': ['Target Asset']
 })
 
 traffic_records = [
@@ -111,11 +119,11 @@ other_traffic_df = pd.DataFrame(traffic_records)
 
 # Ports DataFrame
 ship_ports_df = pd.DataFrame({
-    'latitude': [haifa_lat, nynj_lat], 
+    'latitude': [haifa_lat, nynj_lat],
     'longitude': [haifa_lon, nynj_lon],
     'port_name': ['Port of Haifa (Origin)', 'Port of NY/NJ (Destination)'],
-    'color_r': [0, 255], 
-    'color_g': [255, 0], 
+    'color_r': [0, 255],
+    'color_g': [255, 0],
     'color_b': [0, 0]
 })
 
@@ -129,15 +137,17 @@ dynamic_burn_per_day = 45.0 * ((vessel_speed_knots / 20.0) ** 3) if vessel_speed
 predicted_fuel_mt = round(dynamic_burn_per_day * (total_hours_remaining / 24.0), 1)
 total_co2_emissions_mt = round(predicted_fuel_mt * 3.114, 1)
 
-# Bathymetric Data
+# Bathymetric chart data
 chart_list, trail_points = [], []
 step_count = max(1, int(st.session_state.live_progress))
 for i in range(101):
     f = i / 100.0
     d = -15.0 if i in [0, 100] else round(-15.0 - (math.sin(f * math.pi) * 4985.0), 1)
     if i <= step_count:
-        trail_points.append({'lon': haifa_lon + (nynj_lon - haifa_lon) * f,
-                             'lat': haifa_lat + (nynj_lat - haifa_lat) * f})
+        trail_points.append({
+            'lon': haifa_lon + (nynj_lon - haifa_lon) * f,
+            'lat': haifa_lat + (nynj_lat - haifa_lat) * f
+        })
     chart_list.append({'Voyage Progress (%)': i, 'Ocean Depth (m)': abs(d)})
 
 analytics_df = pd.DataFrame(chart_list).set_index('Voyage Progress (%)')
@@ -147,8 +157,10 @@ history_segments = []
 if len(trail_df) > 1:
     for idx in range(len(trail_df) - 1):
         history_segments.append({
-            's_lon': trail_df.iloc[idx]['lon'], 's_lat': trail_df.iloc[idx]['lat'],
-            'e_lon': trail_df.iloc[idx + 1]['lon'], 'e_lat': trail_df.iloc[idx + 1]['lat']
+            's_lon': trail_df.iloc[idx]['lon'],
+            's_lat': trail_df.iloc[idx]['lat'],
+            'e_lon': trail_df.iloc[idx + 1]['lon'],
+            'e_lat': trail_df.iloc[idx + 1]['lat']
         })
 history_df = pd.DataFrame(history_segments)
 
@@ -158,7 +170,7 @@ m1.metric("🗺️ Remaining Distance to Destination", f"{distance_remaining_nm}
 m2.metric("⏱️ Dynamic ETA Countdown", f"{days}d {hours}h", delta=f"Speed: {vessel_speed_knots} kts")
 m3.metric("📦 Cargo Profile Mode", cargo_profile)
 
-# Environmental & telemetry info
+# Environmental & Telemetry info
 st.markdown("##### Environmental, Weather & Real-Time Fleet Telemetry")
 e1, e2, e3, e4 = st.columns(4)
 e1.metric("⛽ Fuel ETE Requirements", f"{predicted_fuel_mt} MT")
@@ -169,34 +181,51 @@ e4.metric("💨 Live Wind at Ship Location", f"{live_wind_knots} kts", delta=wea
 st.markdown("---")
 
 # Map layers
-layer_ports = pdk.Layer('ScatterplotLayer', data=ship_ports_df, get_position='[longitude, latitude]', get_color='[color_r, color_g, color_b, 200]', get_radius=120000)
+layer_ports = pdk.Layer(
+    'ScatterplotLayer', data=ship_ports_df,
+    get_position='[longitude, latitude]',
+    get_color='[color_r, color_g, color_b, 200]',
+    get_radius=120000
+)
 
 layer_arc = pdk.Layer(
     'ArcLayer', data=route_data,
-    get_source_position='[start_lon, start_lat]', get_target_position='[end_lon, end_lat]',
+    get_source_position='[start_lon, start_lat]',
+    get_target_position='[end_lon, end_lat]',
     get_source_color=[0, 191, 255, 180],
     get_target_color=[255, 140, 0, 180],
     get_width=3
 )
 
 layer_traffic = pdk.Layer(
-    'ScatterplotLayer', data=other_traffic_df, get_position='[longitude, latitude]',
-    get_color=[128, 128, 128, 200], get_radius=120000, pickable=True
+    'ScatterplotLayer', data=other_traffic_df,
+    get_position='[longitude, latitude]',
+    get_color=[128, 128, 128, 200],
+    get_radius=120000,
+    pickable=True
 )
 
 layer_target_vessel = pdk.Layer(
-    'ScatterplotLayer', data=your_vessel_df, get_position='[longitude, latitude]',
-    get_color=[255, 255, 0, 255], get_radius=160000, pickable=True
+    'ScatterplotLayer', data=your_vessel_df,
+    get_position='[longitude, latitude]',
+    get_color=[255, 255, 0, 255],
+    get_radius=160000,
+    pickable=True
 )
 
 map_layers = [layer_arc, layer_ports, layer_traffic, layer_target_vessel]
+
 if not history_df.empty:
     layer_trail = pdk.Layer(
-        'LineLayer', data=history_df, get_source_position='[s_lon, s_lat]', get_target_position='[e_lon, e_lat]',
-        get_color=[0, 127, 127, 255], get_width=5
+        'LineLayer', data=history_df,
+        get_source_position='[s_lon, s_lat]',
+        get_target_position='[e_lon, e_lat]',
+        get_color=[0, 127, 127, 255],
+        get_width=5
     )
     map_layers.append(layer_trail)
 
+# Map display
 st.pydeck_chart(pdk.Deck(
     map_style='mapbox://styles/mapbox/satellite-v9',
     initial_view_state=pdk.ViewState(latitude=36.0, longitude=-20.0, zoom=1.8, pitch=0),
@@ -204,7 +233,7 @@ st.pydeck_chart(pdk.Deck(
     tooltip={"text": "Vessel Profile:\n{vessel_name}\nClassification: {type}"}
 ))
 
-# Bathymetry chart
+# Bathymetric chart
 st.markdown("### 📈 Voyage Time-Series Bathymetric Risk Predictor")
 st.line_chart(analytics_df['Ocean Depth (m)'])
 
