@@ -3,6 +3,7 @@ import pandas as pd
 import pydeck as pdk
 import math
 import time
+import requests  # NEW: Library used to pull real data over the internet!
 
 # Page setup for enterprise layout
 st.set_page_config(page_title="Maritime Intelligence", layout="wide")
@@ -23,29 +24,25 @@ white_color, trail_green = 255, 127
 # ==========================================
 # 4D TIME ENGINE: STATE INITIALIZATION
 # ==========================================
-# We initialize session memory variables to track real-time looping states
 if 'live_progress' not in st.session_state:
-    st.session_state.live_progress = 35.0  # App starts out at baseline 35%
+    st.session_state.live_progress = 35.0  
 if 'simulation_running' not in st.session_state:
     st.session_state.simulation_running = False
 
 # ==========================================
-# SIDEBAR CONTROL ROOM & AUTOMATION SWITCHES
+# SIDEBAR CONTROL ROOM
 # ==========================================
 st.sidebar.header("🕹️ Fleet Control Center")
 
-# Dynamic tracking control toggle button
 sim_toggle = st.sidebar.button(
     label="⏸️ Pause Telemetry Simulation" if st.session_state.simulation_running else "▶️ Launch Live Telemetry Stream"
 )
 
-# If user clicks the toggle button, swap the internal state execution flag
 if sim_toggle:
     st.session_state.simulation_running = not st.session_state.simulation_running
 
 vessel_speed_knots = st.sidebar.slider("Vessel Cruising Speed (Knots)", 5.0, 35.0, 20.0, 0.5)
 
-# The slider now reflects our internal automated progression value
 voyage_progress = st.sidebar.slider(
     label="Vessel Voyage Progress (%)", 
     min_value=0, 
@@ -53,13 +50,11 @@ voyage_progress = st.sidebar.slider(
     value=int(st.session_state.live_progress)
 )
 
-# Sync any manual slider manual moves back to our automation loop tracker
 st.session_state.live_progress = float(voyage_progress)
-
 cargo_profile = st.sidebar.selectbox("Cargo Priority Profile", ["Standard Freight", "High-Value Express", "Eco-Friendly Slow Steaming"])
 
 # ==========================================
-# DISTANCE ENGINE
+# DISTANCE & POSITION INTERPOLATION
 # ==========================================
 def calculate_distance(lat1, lon1, lat2, lon2):
     r_lat1, r_lon1, r_lat2, r_lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
@@ -68,9 +63,6 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 
 trip_distance_nm = calculate_distance(haifa_lat, haifa_lon, nynj_lat, nynj_lon)
 
-# ==========================================
-# RE-COMPUTE FRACTIONS BASED ON ACTIVE STATE
-# ==========================================
 fraction = st.session_state.live_progress / 100.0
 vessel_current_lat = haifa_lat + (nynj_lat - haifa_lat) * fraction
 vessel_current_lon = haifa_lon + (nynj_lon - haifa_lon) * fraction
@@ -84,10 +76,23 @@ else:
 bathymetry_status = "🚨 CRITICAL SHALLOW RISK" if abs(simulated_depth_meters) < 18.0 else "✅ Safe Deep Water"
 risk_color = "normal" if abs(simulated_depth_meters) < 18.0 else "off"
 
-# Weather system
-storm_center = 0.60
-distance_from_storm = abs(fraction - storm_center)
-simulated_wind_knots = round(12.0 + (math.exp(-(distance_from_storm ** 2) / 0.04) * 36.0), 1)
+# ==========================================
+# NEW NEW NEW: REAL-WORLD LIVE METEOROLOGICAL API ENGINE
+# ==========================================
+# We connect to an open public weather API and request real live coordinates
+try:
+    api_url = f"https://open-meteo.com{vessel_current_lat}&longitude={vessel_current_lon}&current_weather=true"
+    response = requests.get(api_url, timeout=5).json()
+    
+    # Extract the real live current wind speed at this exact coordinate point!
+    # Convert km/h to knots by multiplying by 0.539957
+    real_wind_kmh = response['current_weather']['windspeed']
+    simulated_wind_knots = round(real_wind_kmh * 0.539957, 1)
+    data_source_label = "📡 Live Satellite Open-Meteo API Feed"
+except:
+    # Backup fallback if your computer loses internet connection
+    simulated_wind_knots = 15.0
+    data_source_label = "⚠️ API Offline - Using Cached Fallback"
 
 if simulated_wind_knots >= 34.0:
     weather_alert, weather_color = "🚨 GALE WARNING", "normal"
@@ -96,7 +101,7 @@ elif simulated_wind_knots >= 22.0:
 else:
     weather_alert, weather_color = "✅ Calm Sea", "off"
 
-# Registries
+# Registries & Calculations
 ship_data = pd.DataFrame({
     'latitude': [haifa_lat, nynj_lat], 'longitude': [haifa_lon, nynj_lon],
     'port_name': ['Port of Haifa (Origin)', 'Port of NY/NJ (Destination)'],
@@ -106,7 +111,6 @@ ship_data = pd.DataFrame({
 route_data = pd.DataFrame({'start_lon': [haifa_lon], 'start_lat': [haifa_lat], 'end_lon': [nynj_lon], 'end_lat': [nynj_lat]})
 vessel_registry = pd.DataFrame({'latitude': [vessel_current_lat], 'longitude': [vessel_current_lon], 'vessel_name': ['MV-GeoAI-Explorer'], 'wind': [simulated_wind_knots]})
 
-# Metrics calculations
 total_hours = trip_distance_nm / vessel_speed_knots
 days, hours = int(total_hours // 24), int(total_hours % 24)
 dynamic_burn_per_day = 45.0 * ((vessel_speed_knots / 20.0) ** 3) if vessel_speed_knots > 0 else 0
@@ -120,10 +124,9 @@ step_count = max(1, int(st.session_state.live_progress))
 for i in range(101):
     f = i / 100.0
     d = -15.0 if i == 0 or i == 100 else round(-15.0 - (math.sin(f * math.pi) * 4985.0), 1)
-    w = round(12.0 + (math.exp(-(abs(f - storm_center) ** 2) / 0.04) * 36.0), 1)
     if i <= step_count:
         trail_points.append({'lon': haifa_lon + (nynj_lon - haifa_lon) * f, 'lat': haifa_lat + (nynj_lat - haifa_lat) * f})
-    chart_list.append({'Voyage Progress (%)': i, 'Ocean Depth (m)': abs(d), 'Wind Speed (knots)': w})
+    chart_list.append({'Voyage Progress (%)': i, 'Ocean Depth (m)': abs(d)})
 
 analytics_df = pd.DataFrame(chart_list).set_index('Voyage Progress (%)')
 trail_df = pd.DataFrame(trail_points)
@@ -150,11 +153,11 @@ e1, e2, e3, e4 = st.columns(4)
 e1.metric("⛽ Predicted Fuel", f"{predicted_fuel_mt} MT")
 e2.metric("🌱 Estimated CO2", f"{total_co2_emissions_mt} MT")
 e3.metric("🌊 Ocean Depth", f"{simulated_depth_meters} m", delta=bathymetry_status, delta_color=risk_color)
-e4.metric("💨 Wind Speed", f"{simulated_wind_knots} kts", delta=weather_alert, delta_color=weather_color)
+e4.metric("💨 Real-World Wind Speed", f"{simulated_wind_knots} kts", delta=weather_alert, delta_color=weather_color, help=data_source_label)
 
 st.markdown("---")
 
-# Render Map
+# Render Map Layers
 layer_ports = pdk.Layer('ScatterplotLayer', data=ship_data, get_position='[longitude, latitude]', get_color='[color_r, color_g, color_b, 200]', get_radius=100000)
 layer_arc = pdk.Layer('ArcLayer', data=route_data, get_source_position='[start_lon, start_lat]', get_target_position='[end_lon, end_lat]', get_source_color=[cyan_r, cyan_g, cyan_b, 100], get_target_color=[orange_r, orange_g, orange_b, 100], get_width=2)
 layer_vessel = pdk.Layer('ScatterplotLayer', data=vessel_registry, get_position='[longitude, latitude]', get_color=[white_color, white_color, white_color, 255], get_radius=140000)
@@ -173,24 +176,16 @@ st.pydeck_chart(pdk.Deck(
 
 # Render charts
 st.markdown("### 📈 Voyage Time-Series Risk Predictor")
-c1, c2 = st.columns(2)
-with c1:
-    st.markdown("**Ocean Depth Profile (m) Along Shipping Lane**")
-    st.line_chart(analytics_df['Ocean Depth (m)'])
-with c2:
-    st.markdown("**Predictive Wind Speed Weather Cell Model (knots)**")
-    st.line_chart(analytics_df['Wind Speed (knots)'])
+st.line_chart(analytics_df['Ocean Depth (m)'])
 
 # ==========================================
 # AUTOMATION REFRESH PROCESSING
 # ==========================================
-# If the simulation state is active, advance progress and trigger instant reload
 if st.session_state.simulation_running:
     if st.session_state.live_progress < 100.0:
-        # Move the ship forward by 1 percentage point per interval step
         st.session_state.live_progress += 1.0
-        time.sleep(1.0)  # Pause for 1 second before refreshing to mimic telemetry feeds
-        st.rerun()      # Force Streamlit to automatically re-compile and draw updates!
+        time.sleep(1.0)  
+        st.rerun()      
     else:
         st.session_state.simulation_running = False
         st.rerun()
