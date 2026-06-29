@@ -7,11 +7,14 @@ import requests
 import numpy as np
 from datetime import datetime, timedelta
 import json
+import base64
+from PIL import Image
+import io
 
 # Page setup for enterprise layout
-st.set_page_config(page_title="Maritime Intelligence - GIS & Sensors", layout="wide")
+st.set_page_config(page_title="Maritime Intelligence - GIS & Satellites", layout="wide")
 st.title("🚢 Enterprise Maritime GeoAI Platform")
-st.subheader("Live Vessel Tracking • GIS Mapping • Sensor Network • Risk Prediction")
+st.subheader("Live Vessel Tracking • GIS Mapping • Satellite Imagery • Border Monitoring")
 
 # Fixed Terminal Coordinates (Haifa to New York)
 haifa_lat, haifa_lon = 32.8191, 34.9983
@@ -23,6 +26,74 @@ n_red_val, n_green_val, n_blue_val = 255, 0, 0
 cyan_r, cyan_g, cyan_b = 0, 191, 255
 orange_r, orange_g, orange_b = 255, 140, 0
 white_color, trail_green = 255, 127
+
+# ==========================================
+# GEOGRAPHIC BORDERS DATABASE
+# ==========================================
+# Define continental borders and maritime boundaries
+CONTINENTAL_BORDERS = {
+    'asia_europe': {
+        'name': 'Asia-Europe Border',
+        'description': 'Crossing from Asia to Europe (Bosphorus Strait region)',
+        'lat_range': (35.0, 42.0),
+        'lon_range': (25.0, 30.0),
+        'color': '🟡'
+    },
+    'europe_africa': {
+        'name': 'Europe-Africa Border',
+        'description': 'Crossing from Europe to Africa (Strait of Gibraltar)',
+        'lat_range': (35.5, 36.5),
+        'lon_range': (-6.0, -5.0),
+        'color': '🟢'
+    },
+    'asia_africa': {
+        'name': 'Asia-Africa Border',
+        'description': 'Crossing from Asia to Africa (Suez Canal region)',
+        'lat_range': (30.0, 32.0),
+        'lon_range': (32.0, 34.0),
+        'color': '🔵'
+    },
+    'europe_america': {
+        'name': 'Europe-America Border',
+        'description': 'Crossing from Europe to America (Mid-Atlantic Ridge)',
+        'lat_range': (20.0, 50.0),
+        'lon_range': (-30.0, -25.0),
+        'color': '🟣'
+    },
+    'mediterranean': {
+        'name': 'Mediterranean Sea Entry',
+        'description': 'Entering Mediterranean Sea region',
+        'lat_range': (30.0, 38.0),
+        'lon_range': (-5.0, 35.0),
+        'color': '🔵'
+    },
+    'atlantic': {
+        'name': 'Atlantic Ocean Crossing',
+        'description': 'Crossing Atlantic Ocean',
+        'lat_range': (25.0, 45.0),
+        'lon_range': (-50.0, -10.0),
+        'color': '🌊'
+    }
+}
+
+# Define specific border crossing coordinates (lines)
+BORDER_LINES = {
+    'asia_europe_line': {
+        'lat': [35.0, 42.0],
+        'lon': [28.0, 28.0],
+        'name': 'Asia-Europe Border'
+    },
+    'europe_africa_line': {
+        'lat': [35.5, 36.5],
+        'lon': [-5.5, -5.5],
+        'name': 'Europe-Africa Border'
+    },
+    'asia_africa_line': {
+        'lat': [30.0, 32.0],
+        'lon': [33.0, 33.0],
+        'name': 'Asia-Africa Border'
+    }
+}
 
 # ==========================================
 # 4D TIME ENGINE: STATE INITIALIZATION
@@ -41,6 +112,14 @@ if 'risk_history' not in st.session_state:
     st.session_state.risk_history = []
 if 'sensor_data' not in st.session_state:
     st.session_state.sensor_data = []
+if 'border_crossings' not in st.session_state:
+    st.session_state.border_crossings = []
+if 'satellite_images' not in st.session_state:
+    st.session_state.satellite_images = []
+if 'last_border_alert' not in st.session_state:
+    st.session_state.last_border_alert = None
+if 'satellite_view_mode' not in st.session_state:
+    st.session_state.satellite_view_mode = 'top_down'  # top_down, oblique, multispectral
 
 # ==========================================
 # GEOSPATIAL MATHEMATICS
@@ -51,7 +130,6 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     return round(2 * math.asin(math.sqrt(a)) * 3440.065, 1)
 
 def calculate_bearing(lat1, lon1, lat2, lon2):
-    """Calculate bearing between two points"""
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
     dlon = lon2 - lon1
     x = math.sin(dlon) * math.cos(lat2)
@@ -60,7 +138,6 @@ def calculate_bearing(lat1, lon1, lat2, lon2):
     return round(math.degrees(bearing), 1)
 
 def get_zone_info(lat, lon):
-    """Get maritime zone information"""
     if lon < -60:
         return "US Exclusive Economic Zone (EEZ)", "🇺🇸"
     elif lon < -10:
@@ -71,6 +148,135 @@ def get_zone_info(lat, lon):
         return "Mediterranean Sea", "🌅"
     else:
         return "Eastern Mediterranean", "🌊"
+
+def check_border_crossing(lat, lon, prev_lat=None, prev_lon=None):
+    """Check if vessel is crossing any continental border"""
+    crossings = []
+    
+    # Check each border
+    for border_id, border in CONTINENTAL_BORDERS.items():
+        lat_min, lat_max = border['lat_range']
+        lon_min, lon_max = border['lon_range']
+        
+        # Check if current position is within border zone
+        if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+            crossings.append({
+                'border_id': border_id,
+                'name': border['name'],
+                'description': border['description'],
+                'color': border['color']
+            })
+    
+    return crossings
+
+def get_continent(lat, lon):
+    """Determine which continent the vessel is near/at"""
+    if lat > 35 and lon > 25 and lon < 30:
+        return "Asia-Europe Border Zone"
+    elif lat > 35 and lat < 36.5 and lon > -6 and lon < -5:
+        return "Europe-Africa Border Zone"
+    elif lat > 30 and lat < 32 and lon > 32 and lon < 34:
+        return "Asia-Africa Border Zone"
+    elif lon < -30:
+        return "Atlantic Ocean (Mid-Atlantic)"
+    elif lon < -10:
+        return "Atlantic Ocean (Eastern)"
+    elif lon < 0:
+        return "Western Europe"
+    elif lon < 25:
+        return "Mediterranean Sea"
+    else:
+        return "Eastern Mediterranean / Asia"
+
+# ==========================================
+# SATELLITE IMAGE SIMULATION
+# ==========================================
+def generate_satellite_image(lat, lon, zoom=15, mode='top_down'):
+    """Generate simulated satellite image based on location"""
+    # Create a base image with geographic features
+    img_size = 400
+    img = np.zeros((img_size, img_size, 3), dtype=np.uint8)
+    
+    # Determine terrain type based on location
+    if lon < -30:  # Atlantic Ocean
+        # Deep ocean - blue
+        img[:, :, 0] = np.random.randint(20, 80)  # R
+        img[:, :, 1] = np.random.randint(60, 140)  # G
+        img[:, :, 2] = np.random.randint(150, 220)  # B
+        
+        # Add wave patterns
+        for i in range(img_size):
+            for j in range(img_size):
+                wave = int(30 * math.sin(i/20 + j/15) + 30 * math.sin(i/30 - j/25))
+                img[i, j, 1] = np.clip(img[i, j, 1] + wave, 0, 255)
+                img[i, j, 2] = np.clip(img[i, j, 2] + wave, 0, 255)
+    
+    elif lon < -5:  # Coastal/Gibraltar
+        # Land and water mix
+        for i in range(img_size):
+            for j in range(img_size):
+                # Create landmass pattern
+                land = 0
+                if i > 200 and j > 100 and j < 300:
+                    land = 1
+                if i > 300 and j > 50 and j < 350:
+                    land = 1
+                
+                if land:
+                    # Land - green/brown
+                    img[i, j, 0] = np.random.randint(80, 180)
+                    img[i, j, 1] = np.random.randint(100, 200)
+                    img[i, j, 2] = np.random.randint(20, 80)
+                else:
+                    # Water - blue
+                    img[i, j, 0] = np.random.randint(10, 60)
+                    img[i, j, 1] = np.random.randint(50, 120)
+                    img[i, j, 2] = np.random.randint(150, 220)
+    
+    else:  # Mediterranean/Eastern
+        # Mediterranean sea - clear blue
+        for i in range(img_size):
+            for j in range(img_size):
+                depth_factor = 1 - (i / img_size)
+                img[i, j, 0] = np.random.randint(10, 50) + int(20 * depth_factor)
+                img[i, j, 1] = np.random.randint(40, 100) + int(40 * depth_factor)
+                img[i, j, 2] = np.random.randint(140, 200) + int(40 * depth_factor)
+    
+    # Add ship marker (yellow dot) at center
+    center = img_size // 2
+    for i in range(center-10, center+10):
+        for j in range(center-10, center+10):
+            if (i-center)**2 + (j-center)**2 < 100:
+                img[i, j] = [255, 255, 0]  # Yellow ship marker
+    
+    # Add some random features (clouds, waves, etc.)
+    for _ in range(20):
+        x = np.random.randint(0, img_size)
+        y = np.random.randint(0, img_size)
+        radius = np.random.randint(10, 40)
+        for i in range(x-radius, x+radius):
+            for j in range(y-radius, y+radius):
+                if (i-x)**2 + (j-y)**2 < radius**2:
+                    if np.random.random() > 0.7:  # Cloud/feature
+                        img[i, j] = np.clip(img[i, j] + 30, 0, 255)
+    
+    return img
+
+def add_satellite_overlay(img, overlay_type='multispectral'):
+    """Add overlay effects for different satellite views"""
+    if overlay_type == 'thermal':
+        # Simulate thermal imagery (red/orange tones)
+        img = img.astype(float)
+        img[:, :, 0] = np.clip(img[:, :, 0] * 0.8 + 100, 0, 255)
+        img[:, :, 1] = np.clip(img[:, :, 1] * 0.6, 0, 255)
+        img[:, :, 2] = np.clip(img[:, :, 2] * 0.4, 0, 255)
+        img = img.astype(np.uint8)
+    elif overlay_type == 'multispectral':
+        # Enhanced colors for multispectral
+        img[:, :, 0] = np.clip(img[:, :, 0] * 1.2, 0, 255)
+        img[:, :, 1] = np.clip(img[:, :, 1] * 1.4, 0, 255)
+        img[:, :, 2] = np.clip(img[:, :, 2] * 1.6, 0, 255)
+    return img
 
 # ==========================================
 # SIDEBAR CONTROL ROOM
@@ -88,7 +294,7 @@ if sim_toggle:
 
 vessel_speed_knots = st.sidebar.slider("Vessel Cruising Speed (Knots)", 5.0, 35.0, 20.0, 0.5)
 
-# Auto-update progress when simulation is running
+# Auto-update progress
 if st.session_state.simulation_running:
     current_time = time.time()
     time_delta = current_time - st.session_state.last_update_time
@@ -132,16 +338,31 @@ if st.sidebar.button("🔄 Reset Voyage"):
     st.session_state.last_update_time = time.time()
     st.session_state.risk_history = []
     st.session_state.sensor_data = []
+    st.session_state.border_crossings = []
+    st.session_state.last_border_alert = None
     st.rerun()
 
-# GIS Layer Controls in Sidebar
+# GIS & Satellite Controls
 st.sidebar.markdown("---")
-st.sidebar.subheader("🗺️ GIS Layer Controls")
+st.sidebar.subheader("🛰️ Satellite & GIS Controls")
+
+st.session_state.satellite_view_mode = st.sidebar.selectbox(
+    "Satellite View Mode",
+    ['top_down', 'oblique', 'multispectral', 'thermal'],
+    format_func=lambda x: {
+        'top_down': 'Top-Down (20m)',
+        'oblique': 'Oblique (15°)',
+        'multispectral': 'Multispectral',
+        'thermal': 'Thermal'
+    }[x]
+)
+
 show_bathymetry = st.sidebar.checkbox("Show Bathymetry", value=True)
 show_currents = st.sidebar.checkbox("Show Ocean Currents", value=True)
 show_sensors = st.sidebar.checkbox("Show Sensor Network", value=True)
 show_weather = st.sidebar.checkbox("Show Weather Fronts", value=True)
 show_ais = st.sidebar.checkbox("Show AIS Targets", value=True)
+show_borders = st.sidebar.checkbox("Show Continental Borders", value=True)
 
 # Calculate current position
 total_trip_distance = calculate_distance(haifa_lat, haifa_lon, nynj_lat, nynj_lon)
@@ -153,6 +374,29 @@ distance_covered_nm = round(total_trip_distance - distance_remaining_nm, 1)
 
 # Calculate bearing
 current_bearing = calculate_bearing(vessel_current_lat, vessel_current_lon, nynj_lat, nynj_lon)
+
+# ==========================================
+# BORDER CROSSING DETECTION
+# ==========================================
+# Check for border crossings
+border_crossings = check_border_crossing(vessel_current_lat, vessel_current_lon)
+
+if border_crossings:
+    for border in border_crossings:
+        if st.session_state.last_border_alert != border['name']:
+            st.session_state.last_border_alert = border['name']
+            st.session_state.border_crossings.append({
+                'timestamp': datetime.now().strftime('%H:%M:%S'),
+                'border_name': border['name'],
+                'description': border['description'],
+                'lat': vessel_current_lat,
+                'lon': vessel_current_lon
+            })
+            # Show alert
+            st.sidebar.success(f"{border['color']} Border Alert: {border['name']}!")
+
+# Current continent/region
+current_continent = get_continent(vessel_current_lat, vessel_current_lon)
 
 # ==========================================
 # 🛰️ LIVE API WEATHER & SENSORS
@@ -184,7 +428,6 @@ sensor_data = {
     'salinity': round(35 + 2 * math.sin(fraction * math.pi), 1)
 }
 
-# Store sensor history
 st.session_state.sensor_data.append(sensor_data)
 if len(st.session_state.sensor_data) > 50:
     st.session_state.sensor_data = st.session_state.sensor_data[-50:]
@@ -203,7 +446,7 @@ bathymetry_status = "🚨 CRITICAL SHALLOW RISK" if abs(simulated_depth_meters) 
 risk_color = "inverse" if abs(simulated_depth_meters) < 18.0 else "off"
 
 # ==========================================
-# RISK PREDICTION ENGINE
+# RISK PREDICTION
 # ==========================================
 def calculate_risk_score(progress, wind_speed, depth, speed):
     weather_risk = 30 if wind_speed >= 30 else 20 + (wind_speed - 20) * 1 if wind_speed >= 20 else 10 + (wind_speed - 10) * 1 if wind_speed >= 10 else wind_speed * 1
@@ -223,7 +466,6 @@ def get_risk_level(score):
 risk_score = calculate_risk_score(st.session_state.live_progress, live_wind_knots, simulated_depth_meters, vessel_speed_knots)
 risk_level, risk_delta_color = get_risk_level(risk_score)
 
-# Store risk history
 st.session_state.risk_history.append({
     'progress': st.session_state.live_progress,
     'risk_score': risk_score,
@@ -237,7 +479,7 @@ if len(st.session_state.risk_history) > 100:
 # ==========================================
 traffic_offset = st.session_state.traffic_offset
 
-# AIS Targets (simulated)
+# AIS Targets
 ais_targets = pd.DataFrame({
     'latitude': [
         38.5 + traffic_offset[0], 34.2 + traffic_offset[1], 
@@ -284,7 +526,18 @@ route_data = pd.DataFrame({
 # CREATE GIS LAYERS
 # ==========================================
 
-# 1. BATHYMETRY CONTOURS (simulated)
+# 1. Continental Border Lines
+border_lines_data = []
+for border_id, border in BORDER_LINES.items():
+    for i in range(len(border['lat'])-1):
+        border_lines_data.append({
+            'lat1': border['lat'][i], 'lon1': border['lon'][i],
+            'lat2': border['lat'][i+1], 'lon2': border['lon'][i+1],
+            'name': border['name']
+        })
+border_lines_df = pd.DataFrame(border_lines_data)
+
+# 2. Bathymetry
 bathymetry_points = []
 for i in range(20):
     f = i / 20.0
@@ -300,7 +553,7 @@ for i in range(20):
         })
 bathymetry_df = pd.DataFrame(bathymetry_points)
 
-# 2. OCEAN CURRENTS
+# 3. Ocean Currents
 currents_data = []
 for i in range(15):
     f = i / 15.0
@@ -315,7 +568,7 @@ for i in range(15):
     })
 currents_df = pd.DataFrame(currents_data)
 
-# 3. SENSOR NETWORK
+# 4. Sensor Network
 sensor_network = pd.DataFrame({
     'latitude': [vessel_current_lat + d for d in [-5, -3, 0, 3, 5]],
     'longitude': [vessel_current_lon + d for d in [-8, -4, 0, 4, 8]],
@@ -323,14 +576,6 @@ sensor_network = pd.DataFrame({
     'type': ['Buoy', 'Drifter', 'Weather Station', 'Research Vessel', 'Fishing Vessel'],
     'status': ['Active', 'Active', 'Maintenance', 'Active', 'Active']
 })
-
-# 4. WEATHER FRONTS
-fronts_data = [
-    {'lat1': 30, 'lon1': -10, 'lat2': 35, 'lon2': -15, 'type': 'Cold Front'},
-    {'lat1': 35, 'lon1': -20, 'lat2': 40, 'lon2': -25, 'type': 'Warm Front'},
-    {'lat1': 38, 'lon1': -30, 'lat2': 42, 'lon2': -35, 'type': 'Stationary'}
-]
-fronts_df = pd.DataFrame(fronts_data)
 
 # Trail segments
 trail_points = []
@@ -378,6 +623,11 @@ if st.session_state.simulation_running:
 else:
     st.sidebar.warning("⏸️ TELEMETRY PAUSED")
 
+# Border Alert Banner
+if border_crossings:
+    st.success(f"🌍 **BORDER CROSSING ALERT!** {border_crossings[0]['color']} Entering {border_crossings[0]['name']}")
+    st.info(f"📍 {border_crossings[0]['description']}")
+
 # Top risk banner
 risk_bg_color = '#ff4444' if risk_score >= 50 else '#ffaa00' if risk_score >= 30 else '#44ff44'
 st.markdown(f"""
@@ -393,6 +643,9 @@ m2.metric("⏱️ ETA Countdown", f"{days}d {hours}h", delta=f"Speed: {vessel_sp
 m3.metric("📦 Cargo Profile", cargo_profile)
 m4.metric("🧭 Current Heading", f"{current_bearing}°", delta="True Course")
 
+# Continent/Region display
+st.info(f"🌍 **Current Region:** {current_continent} | **Zone:** {get_zone_info(vessel_current_lat, vessel_current_lon)[0]}")
+
 # Sensor dashboard
 st.markdown("##### 🌊 Environmental Sensor Suite")
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -406,234 +659,4 @@ st.markdown("##### Environmental, Weather & Real-Time Fleet Telemetry")
 e1, e2, e3, e4, e5 = st.columns(5)
 e1.metric("⛽ Fuel ETE", f"{predicted_fuel_mt} MT")
 e2.metric("🌱 CO2 Impact", f"{total_co2_emissions_mt} MT")
-e3.metric("🌊 Depth", f"{simulated_depth_meters} m", delta=bathymetry_status, delta_color=risk_color)
-e4.metric("💨 Wind", f"{live_wind_knots} kts", delta=weather_alert, delta_color=weather_color, help=data_source_label)
-e5.metric("⚠️ Risk Score", f"{risk_score}/100", delta=risk_level, delta_color=risk_delta_color)
-
-# Zone info
-zone_name, zone_flag = get_zone_info(vessel_current_lat, vessel_current_lon)
-st.info(f"{zone_flag} **Current Maritime Zone:** {zone_name} | **Position:** {vessel_current_lat:.2f}°N, {abs(vessel_current_lon):.2f}°{'W' if vessel_current_lon < 0 else 'E'}")
-
-st.markdown("---")
-
-# ==========================================
-# ENHANCED GIS MAP WITH ALL LAYERS
-# ==========================================
-
-# Layer 1: Bathymetry
-layer_bathymetry = pdk.Layer(
-    'ScatterplotLayer',
-    data=bathymetry_df,
-    get_position='[lon, lat]',
-    get_color='[255, 200 - depth/20, 100, 100]',
-    get_radius=50000,
-    opacity=0.3
-) if show_bathymetry else None
-
-# Layer 2: Ocean Currents
-layer_currents = pdk.Layer(
-    'LineLayer',
-    data=currents_df,
-    get_source_position='[lon, lat]',
-    get_target_position='[lon + direction_speed*0.5, lat + direction_speed*0.3]',
-    get_color=[0, 150, 255, 200],
-    get_width=2
-) if show_currents else None
-
-# Layer 3: Sensor Network
-layer_sensors = pdk.Layer(
-    'ScatterplotLayer',
-    data=sensor_network,
-    get_position='[longitude, latitude]',
-    get_color=[0, 255, 0, 200],
-    get_radius=30000,
-    pickable=True,
-    tooltip={"text": "Sensor: {sensor_id}\nType: {type}\nStatus: {status}"}
-) if show_sensors else None
-
-# Layer 4: Weather Fronts
-layer_fronts = pdk.Layer(
-    'LineLayer',
-    data=fronts_df,
-    get_source_position='[lon1, lat1]',
-    get_target_position='[lon2, lat2]',
-    get_color=[255, 0, 0, 200] if 'Cold' in fronts_df['type'].iloc[0] else [0, 255, 0, 200],
-    get_width=3
-) if show_weather else None
-
-# Layer 5: AIS Targets
-layer_ais = pdk.Layer(
-    'ScatterplotLayer',
-    data=ais_targets,
-    get_position='[longitude, latitude]',
-    get_color=[100, 150, 255, 200],
-    get_radius=40000,
-    pickable=True,
-    tooltip={"text": "Vessel: {vessel_name}\nType: {type}\nSpeed: {speed} kts\nCourse: {course}°"}
-) if show_ais else None
-
-# Layer 6: Ports
-layer_ports = pdk.Layer(
-    'ScatterplotLayer', 
-    data=ship_ports_df, 
-    get_position='[longitude, latitude]', 
-    get_color='[color_r, color_g, color_b, 200]', 
-    get_radius=80000,
-    pickable=True,
-    tooltip={"text": "Port: {port_name}"}
-)
-
-# Layer 7: Route
-layer_arc = pdk.Layer(
-    'ArcLayer', 
-    data=route_data, 
-    get_source_position='[start_lon, start_lat]', 
-    get_target_position='[end_lon, end_lat]', 
-    get_source_color=[cyan_r, cyan_g, cyan_b, 180], 
-    get_target_color=[orange_r, orange_g, orange_b, 180], 
-    get_width=3
-)
-
-# Layer 8: Trail
-layer_trail = None
-if not history_df.empty:
-    layer_trail = pdk.Layer(
-        'LineLayer', 
-        data=history_df, 
-        get_source_position='[s_lon, s_lat]', 
-        get_target_position='[e_lon, e_lat]', 
-        get_color=[0, 255, 100, 200], 
-        get_width=6
-    )
-
-# Layer 9: Target Vessel
-layer_target_vessel = pdk.Layer(
-    'ScatterplotLayer', 
-    data=your_vessel_df,
-    get_position='[longitude, latitude]',
-    get_color=[255, 255, 0, 255],    
-    get_radius=120000, 
-    pickable=True,
-    tooltip={"text": "{vessel_name}\nType: {type}\nSpeed: {speed} kts\nCourse: {course}°"}
-)
-
-# Layer 10: Risk Zone
-risk_radius = 150000 + (risk_score / 100) * 200000
-risk_color_r = 255 if risk_score >= 50 else 255 if risk_score >= 30 else 0
-risk_color_g = 0 if risk_score >= 50 else 200 if risk_score >= 30 else 255
-risk_color_b = 0 if risk_score >= 50 else 0 if risk_score >= 30 else 0
-
-layer_risk_zone = pdk.Layer(
-    'ScatterplotLayer',
-    data=pd.DataFrame({
-        'latitude': [vessel_current_lat],
-        'longitude': [vessel_current_lon],
-        'risk_level': [risk_level]
-    }),
-    get_position='[longitude, latitude]',
-    get_color=[risk_color_r, risk_color_g, risk_color_b, 80],
-    get_radius=risk_radius,
-    pickable=True,
-    tooltip={"text": "Risk Zone: {risk_level}"}
-)
-
-# Build active layers
-active_layers = [layer_arc, layer_ports, layer_risk_zone, layer_target_vessel]
-if layer_trail: active_layers.append(layer_trail)
-if show_bathymetry and layer_bathymetry: active_layers.append(layer_bathymetry)
-if show_currents and layer_currents: active_layers.append(layer_currents)
-if show_sensors and layer_sensors: active_layers.append(layer_sensors)
-if show_weather and layer_fronts: active_layers.append(layer_fronts)
-if show_ais and layer_ais: active_layers.append(layer_ais)
-
-# Map center and zoom
-map_center_lat = vessel_current_lat
-map_center_lon = vessel_current_lon
-zoom_level = 5.5 if st.session_state.live_progress < 10 or st.session_state.live_progress > 90 else 4.5
-
-st.pydeck_chart(pdk.Deck(
-    map_style='mapbox://styles/mapbox/satellite-streets-v11',
-    initial_view_state=pdk.ViewState(
-        latitude=map_center_lat, 
-        longitude=map_center_lon, 
-        zoom=zoom_level,        
-        pitch=0,
-        bearing=0
-    ),
-    layers=active_layers,
-    tooltip={"text": "{vessel_name}"}
-))
-
-# Enhanced Map Legend
-st.markdown("### 🗺️ GIS Map Legend")
-legend_col1, legend_col2, legend_col3, legend_col4 = st.columns(4)
-legend_col1.markdown("🟡 **Your Ship** (Yellow)")
-legend_col2.markdown("🟢 **Ports** (Green/Red)")
-legend_col3.markdown(f"🔴 **Risk Zone** ({risk_level})")
-legend_col4.markdown("🟦 **AIS Targets** (Blue)")
-
-legend_col5, legend_col6, legend_col7, legend_col8 = st.columns(4)
-legend_col5.markdown("🟩 **Sensors** (Green)" if show_sensors else "🟩 **Sensors** (Hidden)")
-legend_col6.markdown("🌊 **Currents** (Blue)" if show_currents else "🌊 **Currents** (Hidden)")
-legend_col7.markdown("🗺️ **Bathymetry** (Orange)" if show_bathymetry else "🗺️ **Bathymetry** (Hidden)")
-legend_col8.markdown("🌤️ **Weather Fronts** (Red/Green)" if show_weather else "🌤️ **Weather Fronts** (Hidden)")
-
-# ==========================================
-# SENSOR HISTORY CHART
-# ==========================================
-st.markdown("### 📊 Sensor Data History")
-if len(st.session_state.sensor_data) > 1:
-    sensor_df = pd.DataFrame(st.session_state.sensor_data)
-    sensor_col1, sensor_col2 = st.columns(2)
-    with sensor_col1:
-        st.line_chart(sensor_df[['wind_speed', 'temperature']])
-    with sensor_col2:
-        st.line_chart(sensor_df[['wave_height', 'water_temp']])
-else:
-    st.info("Collecting sensor data...")
-
-# ==========================================
-# RISK HISTORY CHART
-# ==========================================
-st.markdown("### 📊 Risk Score History")
-if len(st.session_state.risk_history) > 1:
-    risk_df = pd.DataFrame(st.session_state.risk_history)
-    st.line_chart(risk_df.set_index('progress')['risk_score'])
-else:
-    st.info("Collecting risk data...")
-
-# ==========================================
-# CHARTS AND TELEMETRY
-# ==========================================
-st.markdown("### 📈 Voyage Time-Series Bathymetric Risk Predictor")
-st.line_chart(analytics_df['Ocean Depth (m)'])
-
-st.markdown("### 📡 Active Satellite System Telemetry Stream")
-col1, col2, col3 = st.columns(3)
-
-status_icon = "🟢 LIVE" if st.session_state.simulation_running else "⏸️ PAUSED"
-status_delta = "Streaming" if st.session_state.simulation_running else "Stopped"
-
-col1.metric("Vessel Status", f"{status_icon}", delta=status_delta)
-col2.metric("Voyage Progress", f"{round(st.session_state.live_progress, 1)}%", delta=f"{distance_covered_nm} NM traveled")
-col3.metric("Risk Level", f"{risk_level}", delta=f"Score: {risk_score}/100")
-
-st.markdown("### 📍 Current Vessel Position")
-st.info(f"**Latitude:** {vessel_current_lat:.4f}° | **Longitude:** {vessel_current_lon:.4f}° | **View:** Top-down at {zoom_level}x zoom | **Altitude:** 20 meters | **Heading:** {current_bearing}°")
-
-st.markdown("### ⏱️ Real-Time ETA Countdown")
-progress_bar = st.progress(st.session_state.live_progress / 100.0)
-col1, col2 = st.columns(2)
-col1.write(f"**Distance Remaining:** {distance_remaining_nm} NM")
-col2.write(f"**Estimated Arrival:** {days}d {hours}h at {vessel_speed_knots} knots")
-
-# ==========================================
-# AUTO-REFRESH
-# ==========================================
-if st.session_state.simulation_running and st.session_state.live_progress < 100.0:
-    time.sleep(0.05)
-    st.rerun()
-
-# Footer
-st.markdown("---")
-st.caption("© 2026 Maritime Intelligence Platform | Real-time vessel tracking from Israel to USA | GIS Mapping • Sensor Network • Risk Prediction")
+e3.metric("🌊 Depth", f"{simulated_depth_meters} m", delta=bathymetry_status, delta_color=
