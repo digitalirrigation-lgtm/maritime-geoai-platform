@@ -21,6 +21,12 @@ cyan_r, cyan_g, cyan_b = 0, 191, 255
 orange_r, orange_g, orange_b = 255, 140, 0
 white_color, trail_green = 255, 127
 
+# Neutral Gray for Secondary Traffic
+gray_r, gray_g, gray_b = 128, 128, 128
+
+# Vivid Neon Yellow for Client Target Vessel
+yellow_r, yellow_g, yellow_b = 255, 255, 0
+
 # ==========================================
 # 4D TIME ENGINE: STATE INITIALIZATION
 # ==========================================
@@ -71,7 +77,7 @@ vessel_current_lon = haifa_lon + (nynj_lon - haifa_lon) * fraction
 distance_remaining_nm = calculate_distance(vessel_current_lat, vessel_current_lon, nynj_lat, nynj_lon)
 distance_covered_nm = round(total_trip_distance - distance_remaining_nm, 1)
 
-# FIXED BOOLEAN FALLBACK FOR TERMINAL BOUNDARIES (LINE 74 RISK FIXED)
+# FIXED BOOLEAN FALLBACK FOR TERMINAL BOUNDARIES
 if int(st.session_state.live_progress) == 0 or int(st.session_state.live_progress) == 100:
     simulated_depth_meters = -15.0 
 else:
@@ -103,6 +109,7 @@ else:
 # ==========================================
 # 🚢 FLEET INTERPOLATION SYSTEM (MULTIPLE CARGO SHIPS)
 # ==========================================
+# Target asset tracker
 your_vessel_df = pd.DataFrame({
     'latitude': [vessel_current_lat],
     'longitude': [vessel_current_lon],
@@ -110,11 +117,12 @@ your_vessel_df = pd.DataFrame({
     'type': ['Target Asset']
 })
 
+# FIXED: Balanced multi-row arrays containing exactly 4 items per list entry
 other_traffic_df = pd.DataFrame({
     'latitude': [38.5, 34.2, 41.1, 35.8],
     'longitude': [-35.4, -42.1, -22.5, -50.2],
     'vessel_name': ['MV-Rotterdam-Express', 'MV-Atlantic-Titan', 'MV-Hamburg-Carrier', 'MV-Tokyo-Maru'],
-    'type': ['Neighboring Traffic']
+    'type': ['Neighboring Traffic', 'Neighboring Traffic', 'Neighboring Traffic', 'Neighboring Traffic']
 })
 
 ship_ports_df = pd.DataFrame({
@@ -179,19 +187,19 @@ layer_ports = pdk.Layer('ScatterplotLayer', data=ship_ports_df, get_position='[l
 layer_arc = pdk.Layer('ArcLayer', data=route_data, get_source_position='[start_lon, start_lat]', get_target_position='[end_lon, end_lat]', get_source_color=[cyan_r, cyan_g, cyan_b, 180], get_target_color=[orange_r, orange_g, orange_b, 180], get_width=3)
 layer_trail = pdk.Layer('LineLayer', data=history_df, get_source_position='[s_lon, s_lat]', get_target_position='[e_lon, e_lat]', get_color=[h_red_val, trail_green, trail_green, white_color], get_width=5) if not history_df.empty else None
 
-# LAYER 4: BACKGROUND TRAFFIC VESSELS - Colored Neutral Gray
+# BACKGROUND TRAFFIC VESSELS - Neutral Gray
 layer_traffic = pdk.Layer(
     'ScatterplotLayer', data=other_traffic_df,
     get_position='[longitude, latitude]',
-    get_color=[160, 160, 160, 200],  
+    get_color=[gray_r, gray_g, gray_b, 200],  
     get_radius=100000, pickable=True
 )
 
-# LAYER 5: TARGET ASSET HIGHLIGHT - Colored Vivid Neon Yellow 
+# CLIENT TARGET ASSET HIGHLIGHT - Vivid Neon Yellow 
 layer_target_vessel = pdk.Layer(
     'ScatterplotLayer', data=your_vessel_df,
     get_position='[longitude, latitude]',
-    get_color=[255, 255, 0, 255],    
+    get_color=[yellow_r, yellow_g, yellow_b, 255],    
     get_radius=150000, pickable=True
 )
 
@@ -217,12 +225,3 @@ st.pydeck_chart(pdk.Deck(
 st.markdown("### 📈 Voyage Time-Series Bathymetric Risk Predictor")
 st.line_chart(analytics_df['Ocean Depth (m)'])
 
-st.markdown("### 📡 Active Satellite System Telemetry Stream")
-st.info(f"**Vessel Status:** Track Online | **Voyage Progress:** {round(st.session_state.live_progress, 1)}% Completed | **Core Data Source:** {data_source_label}")
-
-# Automation Processing loop
-if st.session_state.simulation_running:
-    if st.session_state.live_progress < 100.0:
-        st.session_state.live_progress = min(100.0, st.session_state.live_progress + 0.5)
-        time.sleep(0.2)
-        st.rerun()
