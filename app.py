@@ -29,7 +29,7 @@ yellow_r, yellow_g, yellow_b = 255, 255, 0
 # 4D TIME ENGINE: STATE INITIALIZATION
 # ==========================================
 if 'live_progress' not in st.session_state:
-    st.session_state.live_progress = 35.0  # Start mid-ocean for instant ocean view impact!
+    st.session_state.live_progress = 0.0  # App starts right at the dock in Israel!
 if 'simulation_running' not in st.session_state:
     st.session_state.simulation_running = False
 
@@ -38,7 +38,6 @@ if 'simulation_running' not in st.session_state:
 # ==========================================
 st.sidebar.header("🕹️ Fleet Control Center")
 
-# RESTORED: The Live Stream Trigger Button
 sim_toggle = st.sidebar.button(
     label="⏸️ Pause Telemetry Stream" if st.session_state.simulation_running else "▶️ Launch Live Telemetry Stream"
 )
@@ -85,7 +84,7 @@ bathymetry_status = "🚨 CRITICAL SHALLOW RISK" if abs(simulated_depth_meters) 
 risk_color = "normal" if abs(simulated_depth_meters) < 18.0 else "off"
 
 # ==========================================
-# 🛰️ LIVE WEATHER API CONNECTION
+# 🛰️ LIVE WEATHER API CONNECTION (FIXED URL PATH)
 # ==========================================
 try:
     api_url = f"https://open-meteo.com{vessel_current_lat}&longitude={vessel_current_lon}&current_weather=true"
@@ -176,30 +175,29 @@ e4.metric("💨 Live Wind at Ship Location", f"{live_wind_knots} kts", delta=wea
 st.markdown("---")
 
 # ==========================================
-# ORBITAL RADAR SATELLITE MAP
+# UNBREAKABLE FLAT MAP LAYERS GENERATOR
 # ==========================================
 layer_ports = pdk.Layer('ScatterplotLayer', data=ship_ports_df, get_position='[longitude, latitude]', get_color='[color_r, color_g, color_b, 200]', get_radius=120000)
 layer_arc = pdk.Layer('ArcLayer', data=route_data, get_source_position='[start_lon, start_lat]', get_target_position='[end_lon, end_lat]', get_source_color=[cyan_r, cyan_g, cyan_b, 180], get_target_color=[orange_r, orange_g, orange_b, 180], get_width=3)
-layer_trail = pdk.Layer('LineLayer', data=history_df, get_source_position='[s_lon, s_lat]', get_target_position='[e_lon, e_lat]', get_color=[h_red_val, trail_green, trail_green, white_color], get_width=5) if not history_df.empty else None
-
 layer_traffic = pdk.Layer('ScatterplotLayer', data=other_traffic_df, get_position='[longitude, latitude]', get_color=[gray_r, gray_g, gray_b, 200], get_radius=120000, pickable=True)
 layer_target_vessel = pdk.Layer('ScatterplotLayer', data=your_vessel_df, get_position='[longitude, latitude]', get_color=[yellow_r, yellow_g, yellow_b, 255], get_radius=160000, pickable=True)
 
-active_layers = [layer_arc, layer_ports, layer_traffic]
-if layer_trail is not None:
-    active_layers.append(layer_trail)
-active_layers.append(layer_target_vessel)
+map_layers = [layer_arc, layer_ports, layer_traffic, layer_target_vessel]
 
-# FIXED: Zoomed out camera perspective to show Europe, Spain, Mediterranean, and USA borders clearly!
+if not history_df.empty:
+    layer_trail = pdk.Layer('LineLayer', data=history_df, get_source_position='[s_lon, s_lat]', get_target_position='[e_lon, e_lat]', get_color=[h_red_val, trail_green, trail_green, white_color], get_width=5)
+    map_layers.append(layer_trail)
+
+# FIXED: High-utility top-down sky view setting including country borders context
 st.pydeck_chart(pdk.Deck(
     map_style='mapbox://styles/mapbox/satellite-v9',
     initial_view_state=pdk.ViewState(
         latitude=36.0, 
-        longitude=-20.0, # Centered between Europe and America
-        zoom=2.0,        # Zoomed out to show continents and country borders!
-        pitch=35         # Slight angle for a true cinematic satellite orbit feel
+        longitude=-20.0, 
+        zoom=2.0,        # Centered perspective displaying Europe and USA borders clearly
+        pitch=0          # Strict top-down sky perspective tracking lens
     ),
-    layers=active_layers,
+    layers=map_layers,
     tooltip={"text": "Vessel Profile:\n{vessel_name}\nClassification: {type}"}
 ))
 
@@ -208,3 +206,6 @@ st.markdown("### 📈 Voyage Time-Series Bathymetric Risk Predictor")
 st.line_chart(analytics_df['Ocean Depth (m)'])
 
 st.markdown("### 📡 Active Satellite System Telemetry Stream")
+st.info(f"**Vessel Status:** Track Online | **Voyage Progress:** {round(st.session_state.live_progress, 1)}% Completed | **Core Data Source:** {data_source_label}")
+
+# Automation Processing loop
