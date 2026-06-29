@@ -5,86 +5,49 @@ import math
 import time
 import requests
 
-# Page setup for enterprise layout
 st.set_page_config(page_title="Maritime Intelligence", layout="wide")
 st.title("🚢 Enterprise Maritime GeoAI Platform")
 st.subheader("Live Vessel Tracking & Intelligent Route Analytics")
 
-# Fixed Terminal Coordinates (Haifa to New York)
 haifa_lat, haifa_lon = 32.8191, 34.9983
 nynj_lat, nynj_lon = 40.6815, -74.1145
 
-# Safe explicit color handles
-h_red_val, h_green_val, h_blue_val = 0, 255, 0
-n_red_val, n_green_val, n_blue_val = 255, 0, 0
-cyan_r, cyan_g, cyan_b = 0, 191, 255
-orange_r, orange_g, orange_b = 255, 140, 0
-white_color, trail_green = 255, 127
-
-# Colors for Multi-Vessel Traffic
-gray_r, gray_g, gray_b = 128, 128, 128
-yellow_r, yellow_g, yellow_b = 255, 255, 0
-
-# ==========================================
-# 4D TIME ENGINE: SYSTEM STATE INITIALIZATION
-# ==========================================
 if 'live_progress' not in st.session_state:
-    st.session_state.live_progress = 0.0  # Reset to 0% to show full route from Israel to USA
+    st.session_state.live_progress = 0.0
 if 'simulation_running' not in st.session_state:
     st.session_state.simulation_running = False
 
-# CRITICAL AUTOMATION ENGINE FIX: Run the loop processing check FIRST
 if st.session_state.simulation_running:
     if st.session_state.live_progress < 100.0:
         st.session_state.live_progress += 1.0
-        time.sleep(0.5)  # Fast, fluid 0.5-second telemetry updates
+        time.sleep(0.5)
         st.rerun()
     else:
         st.session_state.simulation_running = False
 
-# ==========================================
-# SIDEBAR CONTROL ROOM
-# ==========================================
 st.sidebar.header("🕹️ Fleet Control Center")
-
-# The button toggles the simulation state cleanly without state dropping
 if st.sidebar.button("▶️ Launch Live Telemetry Stream"):
     st.session_state.simulation_running = True
     st.rerun()
-
 if st.sidebar.button("⏸️ Pause Telemetry Stream"):
     st.session_state.simulation_running = False
     st.rerun()
-
 if st.sidebar.button("🔄 Reset Voyage to Israel"):
     st.session_state.live_progress = 0.0
     st.session_state.simulation_running = False
     st.rerun()
 
 vessel_speed_knots = st.sidebar.slider("Vessel Cruising Speed (Knots)", 5.0, 35.0, 20.0, 0.5)
-
-# The progress slider is updated dynamically by our active telemetry clock
-voyage_progress = st.sidebar.slider(
-    label="Vessel Voyage Progress (%)", 
-    min_value=0, 
-    max_value=100, 
-    value=int(st.session_state.live_progress)
-)
+voyage_progress = st.sidebar.slider("Vessel Voyage Progress (%)", 0, 100, int(st.session_state.live_progress))
 st.session_state.live_progress = float(voyage_progress)
-
 cargo_profile = st.sidebar.selectbox("Cargo Priority Profile", ["Standard Freight", "High-Value Express", "Eco-Friendly Slow Steaming"])
 
-# ==========================================
-# GEOSPATIAL MATHEMATICS: DISTANCE & POSITION
-# ==========================================
 def calculate_distance(lat1, lon1, lat2, lon2):
     r_lat1, r_lon1, r_lat2, r_lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
     a = math.sin((r_lat2 - r_lat1)/2)**2 + math.cos(r_lat1) * math.cos(r_lat2) * math.sin((r_lon2 - r_lon1)/2)**2
     return round(2 * math.asin(math.sqrt(a)) * 3440.065, 1)
 
 total_trip_distance = calculate_distance(haifa_lat, haifa_lon, nynj_lat, nynj_lon)
-
-# Calculate your ship's coordinates along the geodesic route
 fraction = st.session_state.live_progress / 100.0
 vessel_current_lat = haifa_lat + (nynj_lat - haifa_lat) * fraction
 vessel_current_lon = haifa_lon + (nynj_lon - haifa_lon) * fraction
@@ -100,18 +63,15 @@ else:
 bathymetry_status = "🚨 CRITICAL SHALLOW RISK" if abs(simulated_depth_meters) < 18.0 else "✅ Safe Deep Water"
 risk_color = "normal" if abs(simulated_depth_meters) < 18.0 else "off"
 
-# ==========================================
-# 🛰️ LIVE WEATHER API CONNECTION
-# ==========================================
 try:
     api_url = f"https://open-meteo.com{vessel_current_lat}&longitude={vessel_current_lon}&current_weather=true"
     response = requests.get(api_url, timeout=3).json()
     real_wind_kmh = response['current_weather']['windspeed']
     live_wind_knots = round(real_wind_kmh * 0.539957, 1)
-    data_source_label = "📡 Connected Live to Satellite Open-Meteo Server Feed"
+    data_source_label = "📡 Connected Live to Satellite Server"
 except:
     live_wind_knots = round(12.0 + (math.sin(fraction * math.pi) * 22.0), 1)
-    data_source_label = "⚠️ Local Telemetry Backup System Online"
+    data_source_label = "⚠️ Backup Local Telemetry Online"
 
 if live_wind_knots >= 24.0:
     weather_alert, weather_color = "🚨 HEAVY WEATHER ALERT", "normal"
@@ -120,12 +80,9 @@ elif live_wind_knots >= 15.0:
 else:
     weather_alert, weather_color = "✅ Calm Sea Conditions", "off"
 
-# Dataframes
 your_vessel_df = pd.DataFrame({
-    'latitude': [vessel_current_lat],
-    'longitude': [vessel_current_lon],
-    'vessel_name': ['⭐ MV-YOUR-CARGO (Israel -> USA)'],
-    'type': ['Target Asset']
+    'latitude': [vessel_current_lat], 'longitude': [vessel_current_lon],
+    'vessel_name': ['⭐ MV-YOUR-CARGO (Israel -> USA)'], 'type': ['Target Asset']
 })
 
 traffic_records = [
@@ -139,19 +96,17 @@ other_traffic_df = pd.DataFrame(traffic_records)
 ship_ports_df = pd.DataFrame({
     'latitude': [haifa_lat, nynj_lat], 'longitude': [haifa_lon, nynj_lon],
     'port_name': ['Port of Haifa (Origin)', 'Port of NY/NJ (Destination)'],
-    'color_r': [h_red_val, n_red_val], 'color_g': [h_green_val, n_green_val], 'color_b': [h_blue_val, n_blue_val]
+    'color_r':, 'color_g':, 'color_b': [0, 0]
 })
 
 route_data = pd.DataFrame({'start_lon': [haifa_lon], 'start_lat': [haifa_lat], 'end_lon': [nynj_lon], 'end_lat': [nynj_lat]})
 
-# Metrics calculations
 total_hours_remaining = distance_remaining_nm / vessel_speed_knots
 days, hours = int(total_hours_remaining // 24), int(total_hours_remaining % 24)
 dynamic_burn_per_day = 45.0 * ((vessel_speed_knots / 20.0) ** 3) if vessel_speed_knots > 0 else 0
 predicted_fuel_mt = round(dynamic_burn_per_day * (total_hours_remaining / 24.0), 1)
 total_co2_emissions_mt = round(predicted_fuel_mt * 3.114, 1)
 
-# Precompute paths
 chart_list, trail_points = [], []
 step_count = max(1, int(st.session_state.live_progress))
 
@@ -174,9 +129,6 @@ if len(trail_df) > 1:
         })
 history_df = pd.DataFrame(history_segments)
 
-# ==========================================
-# RENDER LAYOUT
-# ==========================================
 m1, m2, m3 = st.columns(3)
 m1.metric("🗺️ Remaining Distance to Destination", f"{distance_remaining_nm} NM", delta=f"{distance_covered_nm} NM Covered")
 m2.metric("⏱️ Dynamic ETA Countdown", f"{days}d {hours}h", delta=f"Speed: {vessel_speed_knots} kts")
@@ -191,23 +143,25 @@ e4.metric("💨 Live Wind at Ship Location", f"{live_wind_knots} kts", delta=wea
 
 st.markdown("---")
 
-# ==========================================
-# ORBITAL RADAR SATELLITE MAP
-# ==========================================
 layer_ports = pdk.Layer('ScatterplotLayer', data=ship_ports_df, get_position='[longitude, latitude]', get_color='[color_r, color_g, color_b, 200]', get_radius=120000)
-layer_arc = pdk.Layer('ArcLayer', data=route_data, get_source_position='[start_lon, start_lat]', get_target_position='[end_lon, end_lat]', get_source_color=[cyan_r, cyan_g, cyan_b, 180], get_target_color=[orange_r, orange_g, orange_b, 180], get_width=3)
-layer_traffic = pdk.Layer('ScatterplotLayer', data=other_traffic_df, get_position='[longitude, latitude]', get_color=[gray_r, gray_g, gray_b, 200], get_radius=120000, pickable=True)
-layer_target_vessel = pdk.Layer('ScatterplotLayer', data=your_vessel_df, get_position='[longitude, latitude]', get_color=[yellow_r, yellow_g, yellow_b, 255], get_radius=160000, pickable=True)
+layer_arc = pdk.Layer('ArcLayer', data=route_data, get_source_position='[start_lon, start_lat]', get_target_position='[end_lon, end_lat]', get_source_color=[0, 191, 255, 180], get_target_color=[255, 140, 0, 180], get_width=3)
+layer_traffic = pdk.Layer('ScatterplotLayer', data=other_traffic_df, get_position='[longitude, latitude]', get_color=[128, 128, 128, 200], get_radius=120000, pickable=True)
+layer_target_vessel = pdk.Layer('ScatterplotLayer', data=your_vessel_df, get_position='[longitude, latitude]', get_color=[255, 255, 0, 255], get_radius=160000, pickable=True)
 
 map_layers = [layer_arc, layer_ports, layer_traffic, layer_target_vessel]
-
 if not history_df.empty:
-    layer_trail = pdk.Layer('LineLayer', data=history_df, get_source_position='[s_lon, s_lat]', get_target_position='[e_lon, e_lat]', get_color=[h_red_val, trail_green, trail_green, white_color], get_width=5)
+    layer_trail = pdk.Layer('LineLayer', data=history_df, get_source_position='[s_lon, s_lat]', get_target_position='[e_lon, e_lat]', get_color=[0, 127, 127, 255], get_width=5)
     map_layers.append(layer_trail)
 
-# High-utility top-down satellite monitor tracking lens with European country context
 st.pydeck_chart(pdk.Deck(
     map_style='mapbox://styles/mapbox/satellite-v9',
-    initial_view_state=pdk.ViewState(
-        latitude=36.0, 
-        longitude=-20.0, 
+    initial_view_state=pdk.ViewState(latitude=36.0, longitude=-20.0, zoom=1.8, pitch=0),
+    layers=map_layers,
+    tooltip={"text": "Vessel Profile:\n{vessel_name}\nClassification: {type}"}
+))
+
+st.markdown("### 📈 Voyage Time-Series Bathymetric Risk Predictor")
+st.line_chart(analytics_df['Ocean Depth (m)'])
+
+st.markdown("### 📡 Active Satellite System Telemetry Stream")
+st.info(f"**Vessel Status:** Track Online | **Voyage Progress:** {round(st.session_state.live_progress, 1)}% Completed | **Core Data Source:** {data_source_label}")
