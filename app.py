@@ -305,11 +305,8 @@ st.session_state.satellite_view_mode = st.sidebar.selectbox(
     }[x]
 )
 
-show_bathymetry = st.sidebar.checkbox("Show Bathymetry", value=True)
-show_currents = st.sidebar.checkbox("Show Ocean Currents", value=True)
-show_sensors = st.sidebar.checkbox("Show Sensor Network", value=True)
-show_ais = st.sidebar.checkbox("Show AIS Targets", value=True)
 show_borders = st.sidebar.checkbox("Show Continental Borders", value=True)
+show_ais = st.sidebar.checkbox("Show AIS Targets", value=True)
 
 # Calculate current position
 total_trip_distance = calculate_distance(haifa_lat, haifa_lon, nynj_lat, nynj_lon)
@@ -670,4 +667,10 @@ zoom_level = 5.5 if st.session_state.live_progress < 10 or st.session_state.live
 st.pydeck_chart(pdk.Deck(
     map_style='mapbox://styles/mapbox/satellite-streets-v11',
     initial_view_state=pdk.ViewState(
-        latitude=map_center_lat
+        latitude=map_center_lat, 
+        longitude=map_center_lon, 
+        zoom=zoom_level,        
+        pitch=0,
+        bearing=0
+    ),
+    layers=
