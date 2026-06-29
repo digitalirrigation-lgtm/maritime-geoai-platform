@@ -30,7 +30,6 @@ white_color, trail_green = 255, 127
 # ==========================================
 # GEOGRAPHIC BORDERS DATABASE
 # ==========================================
-# Define continental borders and maritime boundaries
 CONTINENTAL_BORDERS = {
     'asia_europe': {
         'name': 'Asia-Europe Border',
@@ -76,7 +75,6 @@ CONTINENTAL_BORDERS = {
     }
 }
 
-# Define specific border crossing coordinates (lines)
 BORDER_LINES = {
     'asia_europe_line': {
         'lat': [35.0, 42.0],
@@ -119,7 +117,7 @@ if 'satellite_images' not in st.session_state:
 if 'last_border_alert' not in st.session_state:
     st.session_state.last_border_alert = None
 if 'satellite_view_mode' not in st.session_state:
-    st.session_state.satellite_view_mode = 'top_down'  # top_down, oblique, multispectral
+    st.session_state.satellite_view_mode = 'top_down'
 
 # ==========================================
 # GEOSPATIAL MATHEMATICS
@@ -149,16 +147,11 @@ def get_zone_info(lat, lon):
     else:
         return "Eastern Mediterranean", "🌊"
 
-def check_border_crossing(lat, lon, prev_lat=None, prev_lon=None):
-    """Check if vessel is crossing any continental border"""
+def check_border_crossing(lat, lon):
     crossings = []
-    
-    # Check each border
     for border_id, border in CONTINENTAL_BORDERS.items():
         lat_min, lat_max = border['lat_range']
         lon_min, lon_max = border['lon_range']
-        
-        # Check if current position is within border zone
         if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
             crossings.append({
                 'border_id': border_id,
@@ -166,11 +159,9 @@ def check_border_crossing(lat, lon, prev_lat=None, prev_lon=None):
                 'description': border['description'],
                 'color': border['color']
             })
-    
     return crossings
 
 def get_continent(lat, lon):
-    """Determine which continent the vessel is near/at"""
     if lat > 35 and lon > 25 and lon < 30:
         return "Asia-Europe Border Zone"
     elif lat > 35 and lat < 36.5 and lon > -6 and lon < -5:
@@ -188,53 +179,36 @@ def get_continent(lat, lon):
     else:
         return "Eastern Mediterranean / Asia"
 
-# ==========================================
-# SATELLITE IMAGE SIMULATION
-# ==========================================
 def generate_satellite_image(lat, lon, zoom=15, mode='top_down'):
-    """Generate simulated satellite image based on location"""
-    # Create a base image with geographic features
     img_size = 400
     img = np.zeros((img_size, img_size, 3), dtype=np.uint8)
     
-    # Determine terrain type based on location
-    if lon < -30:  # Atlantic Ocean
-        # Deep ocean - blue
-        img[:, :, 0] = np.random.randint(20, 80)  # R
-        img[:, :, 1] = np.random.randint(60, 140)  # G
-        img[:, :, 2] = np.random.randint(150, 220)  # B
-        
-        # Add wave patterns
+    if lon < -30:
+        img[:, :, 0] = np.random.randint(20, 80)
+        img[:, :, 1] = np.random.randint(60, 140)
+        img[:, :, 2] = np.random.randint(150, 220)
         for i in range(img_size):
             for j in range(img_size):
                 wave = int(30 * math.sin(i/20 + j/15) + 30 * math.sin(i/30 - j/25))
                 img[i, j, 1] = np.clip(img[i, j, 1] + wave, 0, 255)
                 img[i, j, 2] = np.clip(img[i, j, 2] + wave, 0, 255)
-    
-    elif lon < -5:  # Coastal/Gibraltar
-        # Land and water mix
+    elif lon < -5:
         for i in range(img_size):
             for j in range(img_size):
-                # Create landmass pattern
                 land = 0
                 if i > 200 and j > 100 and j < 300:
                     land = 1
                 if i > 300 and j > 50 and j < 350:
                     land = 1
-                
                 if land:
-                    # Land - green/brown
                     img[i, j, 0] = np.random.randint(80, 180)
                     img[i, j, 1] = np.random.randint(100, 200)
                     img[i, j, 2] = np.random.randint(20, 80)
                 else:
-                    # Water - blue
                     img[i, j, 0] = np.random.randint(10, 60)
                     img[i, j, 1] = np.random.randint(50, 120)
                     img[i, j, 2] = np.random.randint(150, 220)
-    
-    else:  # Mediterranean/Eastern
-        # Mediterranean sea - clear blue
+    else:
         for i in range(img_size):
             for j in range(img_size):
                 depth_factor = 1 - (i / img_size)
@@ -242,40 +216,23 @@ def generate_satellite_image(lat, lon, zoom=15, mode='top_down'):
                 img[i, j, 1] = np.random.randint(40, 100) + int(40 * depth_factor)
                 img[i, j, 2] = np.random.randint(140, 200) + int(40 * depth_factor)
     
-    # Add ship marker (yellow dot) at center
     center = img_size // 2
     for i in range(center-10, center+10):
         for j in range(center-10, center+10):
             if (i-center)**2 + (j-center)**2 < 100:
-                img[i, j] = [255, 255, 0]  # Yellow ship marker
+                img[i, j] = [255, 255, 0]
     
-    # Add some random features (clouds, waves, etc.)
-    for _ in range(20):
-        x = np.random.randint(0, img_size)
-        y = np.random.randint(0, img_size)
-        radius = np.random.randint(10, 40)
-        for i in range(x-radius, x+radius):
-            for j in range(y-radius, y+radius):
-                if (i-x)**2 + (j-y)**2 < radius**2:
-                    if np.random.random() > 0.7:  # Cloud/feature
-                        img[i, j] = np.clip(img[i, j] + 30, 0, 255)
-    
-    return img
-
-def add_satellite_overlay(img, overlay_type='multispectral'):
-    """Add overlay effects for different satellite views"""
-    if overlay_type == 'thermal':
-        # Simulate thermal imagery (red/orange tones)
+    if mode == 'thermal':
         img = img.astype(float)
         img[:, :, 0] = np.clip(img[:, :, 0] * 0.8 + 100, 0, 255)
         img[:, :, 1] = np.clip(img[:, :, 1] * 0.6, 0, 255)
         img[:, :, 2] = np.clip(img[:, :, 2] * 0.4, 0, 255)
         img = img.astype(np.uint8)
-    elif overlay_type == 'multispectral':
-        # Enhanced colors for multispectral
+    elif mode == 'multispectral':
         img[:, :, 0] = np.clip(img[:, :, 0] * 1.2, 0, 255)
         img[:, :, 1] = np.clip(img[:, :, 1] * 1.4, 0, 255)
         img[:, :, 2] = np.clip(img[:, :, 2] * 1.6, 0, 255)
+    
     return img
 
 # ==========================================
@@ -294,7 +251,6 @@ if sim_toggle:
 
 vessel_speed_knots = st.sidebar.slider("Vessel Cruising Speed (Knots)", 5.0, 35.0, 20.0, 0.5)
 
-# Auto-update progress
 if st.session_state.simulation_running:
     current_time = time.time()
     time_delta = current_time - st.session_state.last_update_time
@@ -342,7 +298,6 @@ if st.sidebar.button("🔄 Reset Voyage"):
     st.session_state.last_border_alert = None
     st.rerun()
 
-# GIS & Satellite Controls
 st.sidebar.markdown("---")
 st.sidebar.subheader("🛰️ Satellite & GIS Controls")
 
@@ -371,16 +326,10 @@ vessel_current_lat = haifa_lat + (nynj_lat - haifa_lat) * fraction
 vessel_current_lon = haifa_lon + (nynj_lon - haifa_lon) * fraction
 distance_remaining_nm = calculate_distance(vessel_current_lat, vessel_current_lon, nynj_lat, nynj_lon)
 distance_covered_nm = round(total_trip_distance - distance_remaining_nm, 1)
-
-# Calculate bearing
 current_bearing = calculate_bearing(vessel_current_lat, vessel_current_lon, nynj_lat, nynj_lon)
 
-# ==========================================
-# BORDER CROSSING DETECTION
-# ==========================================
-# Check for border crossings
+# Border detection
 border_crossings = check_border_crossing(vessel_current_lat, vessel_current_lon)
-
 if border_crossings:
     for border in border_crossings:
         if st.session_state.last_border_alert != border['name']:
@@ -392,10 +341,7 @@ if border_crossings:
                 'lat': vessel_current_lat,
                 'lon': vessel_current_lon
             })
-            # Show alert
-            st.sidebar.success(f"{border['color']} Border Alert: {border['name']}!")
 
-# Current continent/region
 current_continent = get_continent(vessel_current_lat, vessel_current_lon)
 
 # ==========================================
@@ -416,7 +362,6 @@ except:
     temperature = 20.0 + (math.sin(fraction * math.pi) * 5.0)
     data_source_label = "⚠️ Local Telemetry Backup System Online"
 
-# Generate sensor data
 sensor_data = {
     'timestamp': datetime.now().strftime('%H:%M:%S'),
     'wind_speed': live_wind_knots,
@@ -432,7 +377,6 @@ st.session_state.sensor_data.append(sensor_data)
 if len(st.session_state.sensor_data) > 50:
     st.session_state.sensor_data = st.session_state.sensor_data[-50:]
 
-# Weather alert
 if live_wind_knots >= 24.0:
     weather_alert, weather_color = "🚨 HEAVY WEATHER ALERT", "inverse"
 elif live_wind_knots >= 15.0:
@@ -440,7 +384,6 @@ elif live_wind_knots >= 15.0:
 else:
     weather_alert, weather_color = "✅ Calm Sea Conditions", "normal"
 
-# Bathymetry
 simulated_depth_meters = round(-15.0 - (math.sin(fraction * math.pi) * 4985.0), 1)
 bathymetry_status = "🚨 CRITICAL SHALLOW RISK" if abs(simulated_depth_meters) < 18.0 else "✅ Safe Deep Water"
 risk_color = "inverse" if abs(simulated_depth_meters) < 18.0 else "off"
@@ -479,7 +422,6 @@ if len(st.session_state.risk_history) > 100:
 # ==========================================
 traffic_offset = st.session_state.traffic_offset
 
-# AIS Targets
 ais_targets = pd.DataFrame({
     'latitude': [
         38.5 + traffic_offset[0], 34.2 + traffic_offset[1], 
@@ -525,8 +467,6 @@ route_data = pd.DataFrame({
 # ==========================================
 # CREATE GIS LAYERS
 # ==========================================
-
-# 1. Continental Border Lines
 border_lines_data = []
 for border_id, border in BORDER_LINES.items():
     for i in range(len(border['lat'])-1):
@@ -537,7 +477,6 @@ for border_id, border in BORDER_LINES.items():
         })
 border_lines_df = pd.DataFrame(border_lines_data)
 
-# 2. Bathymetry
 bathymetry_points = []
 for i in range(20):
     f = i / 20.0
@@ -553,7 +492,6 @@ for i in range(20):
         })
 bathymetry_df = pd.DataFrame(bathymetry_points)
 
-# 3. Ocean Currents
 currents_data = []
 for i in range(15):
     f = i / 15.0
@@ -568,7 +506,6 @@ for i in range(15):
     })
 currents_df = pd.DataFrame(currents_data)
 
-# 4. Sensor Network
 sensor_network = pd.DataFrame({
     'latitude': [vessel_current_lat + d for d in [-5, -3, 0, 3, 5]],
     'longitude': [vessel_current_lon + d for d in [-8, -4, 0, 4, 8]],
@@ -577,7 +514,6 @@ sensor_network = pd.DataFrame({
     'status': ['Active', 'Active', 'Maintenance', 'Active', 'Active']
 })
 
-# Trail segments
 trail_points = []
 step_count = int(st.session_state.live_progress)
 for i in range(0, step_count + 1):
@@ -599,7 +535,6 @@ if len(trail_df) > 1:
         })
 history_df = pd.DataFrame(history_segments)
 
-# Depth analytics
 depth_data = []
 for i in range(101):
     f = i / 100.0
@@ -607,7 +542,6 @@ for i in range(101):
     depth_data.append({'Voyage Progress (%)': i, 'Ocean Depth (m)': d})
 analytics_df = pd.DataFrame(depth_data).set_index('Voyage Progress (%)')
 
-# Voyage calculations
 total_hours_remaining = distance_remaining_nm / vessel_speed_knots if vessel_speed_knots > 0 else 0
 days = int(total_hours_remaining // 24)
 hours = int(total_hours_remaining % 24)
@@ -623,12 +557,10 @@ if st.session_state.simulation_running:
 else:
     st.sidebar.warning("⏸️ TELEMETRY PAUSED")
 
-# Border Alert Banner
 if border_crossings:
     st.success(f"🌍 **BORDER CROSSING ALERT!** {border_crossings[0]['color']} Entering {border_crossings[0]['name']}")
     st.info(f"📍 {border_crossings[0]['description']}")
 
-# Top risk banner
 risk_bg_color = '#ff4444' if risk_score >= 50 else '#ffaa00' if risk_score >= 30 else '#44ff44'
 st.markdown(f"""
 <div style="background-color: {risk_bg_color}; padding: 10px; border-radius: 5px; margin-bottom: 10px;">
@@ -636,17 +568,14 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Top metrics row
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("🗺️ Remaining Distance", f"{distance_remaining_nm} NM", delta=f"{distance_covered_nm} NM Covered")
 m2.metric("⏱️ ETA Countdown", f"{days}d {hours}h", delta=f"Speed: {vessel_speed_knots} kts")
 m3.metric("📦 Cargo Profile", cargo_profile)
 m4.metric("🧭 Current Heading", f"{current_bearing}°", delta="True Course")
 
-# Continent/Region display
 st.info(f"🌍 **Current Region:** {current_continent} | **Zone:** {get_zone_info(vessel_current_lat, vessel_current_lon)[0]}")
 
-# Sensor dashboard
 st.markdown("##### 🌊 Environmental Sensor Suite")
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("🌡️ Air Temp", f"{sensor_data['temperature']}°C")
@@ -659,4 +588,65 @@ st.markdown("##### Environmental, Weather & Real-Time Fleet Telemetry")
 e1, e2, e3, e4, e5 = st.columns(5)
 e1.metric("⛽ Fuel ETE", f"{predicted_fuel_mt} MT")
 e2.metric("🌱 CO2 Impact", f"{total_co2_emissions_mt} MT")
-e3.metric("🌊 Depth", f"{simulated_depth_meters} m", delta=bathymetry_status, delta_color=
+e3.metric("🌊 Depth", f"{simulated_depth_meters} m", delta=bathymetry_status, delta_color=risk_color)
+e4.metric("💨 Wind", f"{live_wind_knots} kts", delta=weather_alert, delta_color=weather_color, help=data_source_label)
+e5.metric("⚠️ Risk Score", f"{risk_score}/100", delta=risk_level, delta_color=risk_delta_color)
+
+st.markdown("---")
+
+# ==========================================
+# SATELLITE IMAGE VIEWER (20m Top-Down)
+# ==========================================
+st.markdown("### 🛰️ Earth Observer - Satellite Imagery (20m Top-Down View)")
+
+# Generate satellite image
+sat_img = generate_satellite_image(
+    vessel_current_lat, 
+    vessel_current_lon, 
+    mode=st.session_state.satellite_view_mode
+)
+
+# Display satellite image with overlay
+col_img1, col_img2, col_img3 = st.columns([2, 3, 1])
+with col_img2:
+    st.image(sat_img, caption=f"Satellite View - {st.session_state.satellite_view_mode.upper()} Mode | Position: {vessel_current_lat:.2f}°N, {abs(vessel_current_lon):.2f}°{'W' if vessel_current_lon < 0 else 'E'}", use_container_width=True)
+    st.caption("🟡 Yellow marker indicates vessel position | Real-time Earth observation from 20m altitude")
+
+# Satellite info
+sat_info_col1, sat_info_col2, sat_info_col3 = st.columns(3)
+sat_info_col1.metric("Satellite", "Copernicus Sentinel-2", delta="Active")
+sat_info_col2.metric("Altitude", "20 meters", delta="Top-Down View")
+sat_info_col3.metric("Resolution", "10m/pixel", delta="Real-time")
+
+st.markdown("---")
+
+# ==========================================
+# ENHANCED GIS MAP
+# ==========================================
+# Border lines layer
+layer_borders = None
+if show_borders and not border_lines_df.empty:
+    layer_borders = pdk.Layer(
+        'LineLayer',
+        data=border_lines_df,
+        get_source_position='[lon1, lat1]',
+        get_target_position='[lon2, lat2]',
+        get_color=[255, 215, 0, 200],
+        get_width=4
+    )
+
+layer_bathymetry = None
+if show_bathymetry:
+    layer_bathymetry = pdk.Layer(
+        'ScatterplotLayer',
+        data=bathymetry_df,
+        get_position='[lon, lat]',
+        get_color='[255, 200 - depth/20, 100, 100]',
+        get_radius=50000,
+        opacity=0.3
+    )
+
+layer_currents = None
+if show_currents:
+    layer_currents = pdk.Layer(
+        'Line
