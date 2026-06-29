@@ -173,20 +173,24 @@ def get_continent(lat, lon):
     else:
         return "Eastern Mediterranean / Asia"
 
+# ==========================================
+# FIXED SATELLITE IMAGE GENERATOR (No Overflow)
+# ==========================================
 def generate_satellite_image(lat, lon, mode='top_down'):
     img_size = 400
-    img = np.zeros((img_size, img_size, 3), dtype=np.uint8)
-    
-    if lon < -30:
-        img[:, :, 0] = np.random.randint(20, 80)
-        img[:, :, 1] = np.random.randint(60, 140)
-        img[:, :, 2] = np.random.randint(150, 220)
+    # Use int32 to avoid overflow during arithmetic
+    img = np.zeros((img_size, img_size, 3), dtype=np.int32)
+
+    if lon < -30:  # Deep Atlantic
+        img[:, :, 0] = np.random.randint(20, 80, (img_size, img_size))
+        img[:, :, 1] = np.random.randint(60, 140, (img_size, img_size))
+        img[:, :, 2] = np.random.randint(150, 220, (img_size, img_size))
         for i in range(img_size):
             for j in range(img_size):
                 wave = int(30 * math.sin(i/20 + j/15) + 30 * math.sin(i/30 - j/25))
-                img[i, j, 1] = np.clip(img[i, j, 1] + wave, 0, 255)
-                img[i, j, 2] = np.clip(img[i, j, 2] + wave, 0, 255)
-    elif lon < -5:
+                img[i, j, 1] = int(img[i, j, 1]) + wave
+                img[i, j, 2] = int(img[i, j, 2]) + wave
+    elif lon < -5:  # Coastal / Gibraltar
         for i in range(img_size):
             for j in range(img_size):
                 land = 0
@@ -202,31 +206,35 @@ def generate_satellite_image(lat, lon, mode='top_down'):
                     img[i, j, 0] = np.random.randint(10, 60)
                     img[i, j, 1] = np.random.randint(50, 120)
                     img[i, j, 2] = np.random.randint(150, 220)
-    else:
+    else:  # Mediterranean
         for i in range(img_size):
             for j in range(img_size):
                 depth_factor = 1 - (i / img_size)
                 img[i, j, 0] = np.random.randint(10, 50) + int(20 * depth_factor)
                 img[i, j, 1] = np.random.randint(40, 100) + int(40 * depth_factor)
                 img[i, j, 2] = np.random.randint(140, 200) + int(40 * depth_factor)
-    
+
+    # Ship marker (yellow)
     center = img_size // 2
     for i in range(center-10, center+10):
         for j in range(center-10, center+10):
             if (i-center)**2 + (j-center)**2 < 100:
                 img[i, j] = [255, 255, 0]
-    
+
+    # Apply mode
     if mode == 'thermal':
         img = img.astype(float)
         img[:, :, 0] = np.clip(img[:, :, 0] * 0.8 + 100, 0, 255)
         img[:, :, 1] = np.clip(img[:, :, 1] * 0.6, 0, 255)
         img[:, :, 2] = np.clip(img[:, :, 2] * 0.4, 0, 255)
-        img = img.astype(np.uint8)
+        img = img.astype(np.int32)
     elif mode == 'multispectral':
         img[:, :, 0] = np.clip(img[:, :, 0] * 1.2, 0, 255)
         img[:, :, 1] = np.clip(img[:, :, 1] * 1.4, 0, 255)
         img[:, :, 2] = np.clip(img[:, :, 2] * 1.6, 0, 255)
-    
+
+    # Final clip and convert to uint8
+    img = np.clip(img, 0, 255).astype(np.uint8)
     return img
 
 # ==========================================
@@ -260,7 +268,7 @@ if st.session_state.simulation_running:
         st.success("🎉 Voyage Complete! Ship has arrived at destination!")
 
 voyage_progress = st.sidebar.slider(
-    label="Vessel Voyage Progress (%)", 
+    label="Vessel Voyage Progress (%)",
     min_value=0, max_value=100, value=int(st.session_state.live_progress)
 )
 if voyage_progress != int(st.session_state.live_progress):
@@ -627,7 +635,7 @@ st.pydeck_chart(pdk.Deck(
         bearing=0
     ),
     layers=active_layers
-))  # <-- FIXED: TWO CLOSING PARENTHESES
+))
 
 # ==========================================
 # ADDITIONAL CHARTS
