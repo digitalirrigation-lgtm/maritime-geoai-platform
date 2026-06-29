@@ -26,11 +26,13 @@ white_color, trail_green = 255, 127
 # 4D TIME ENGINE: STATE INITIALIZATION
 # ==========================================
 if 'live_progress' not in st.session_state:
-    st.session_state.live_progress = 35.0  # Start mid-ocean for instant ocean view impact!
+    st.session_state.live_progress = 35.0
 if 'simulation_running' not in st.session_state:
     st.session_state.simulation_running = False
 if 'time_counter' not in st.session_state:
     st.session_state.time_counter = 0
+if 'traffic_offset' not in st.session_state:
+    st.session_state.traffic_offset = np.random.uniform(-3, 3, 4)
 
 # ==========================================
 # SIDEBAR CONTROL ROOM
@@ -87,7 +89,6 @@ risk_color = "inverse" if abs(simulated_depth_meters) < 18.0 else "off"
 # 🛰️ LIVE API WEATHER SATELLITE CONNECTION
 # ==========================================
 try:
-    # Fixed API URL construction
     api_url = f"https://api.open-meteo.com/v1/forecast?latitude={vessel_current_lat}&longitude={vessel_current_lon}&current_weather=true"
     response = requests.get(api_url, timeout=5).json()
     if 'current_weather' in response and 'windspeed' in response['current_weather']:
@@ -110,13 +111,28 @@ else:
 # ==========================================
 # 🚢 FLEET INTERPOLATION SYSTEM (MULTIPLE CARGO SHIPS)
 # ==========================================
-# Create moving traffic vessels with dynamic positions
-traffic_offset = np.random.uniform(-5, 5, 4)  # Random offset for traffic
+# Update traffic offset periodically
+if st.session_state.time_counter % 50 == 0:
+    st.session_state.traffic_offset = np.random.uniform(-3, 3, 4)
+
+traffic_offset = st.session_state.traffic_offset
+
+# Create moving traffic vessels with dynamic positions - FIXED LENGTHS
 other_traffic_df = pd.DataFrame({
-    'latitude': [38.5 + traffic_offset[0], 34.2 + traffic_offset[1], 41.1 + traffic_offset[2], 35.8 + traffic_offset[3]],
-    'longitude': [-35.4 + traffic_offset[0]*0.5, -42.1 + traffic_offset[1]*0.5, -22.5 + traffic_offset[2]*0.5, -50.2 + traffic_offset[3]*0.5],
+    'latitude': [
+        38.5 + traffic_offset[0], 
+        34.2 + traffic_offset[1], 
+        41.1 + traffic_offset[2], 
+        35.8 + traffic_offset[3]
+    ],
+    'longitude': [
+        -35.4 + traffic_offset[0] * 0.5, 
+        -42.1 + traffic_offset[1] * 0.5, 
+        -22.5 + traffic_offset[2] * 0.5, 
+        -50.2 + traffic_offset[3] * 0.5
+    ],
     'vessel_name': ['MV-Rotterdam-Express', 'MV-Atlantic-Titan', 'MV-Hamburg-Carrier', 'MV-Tokyo-Maru'],
-    'type': ['Neighboring Traffic']
+    'type': ['Neighboring Traffic', 'Neighboring Traffic', 'Neighboring Traffic', 'Neighboring Traffic']
 })
 
 your_vessel_df = pd.DataFrame({
@@ -268,9 +284,9 @@ map_center_lon = vessel_current_lon
 
 # Calculate zoom level based on progress - zoom in more when near ports
 if st.session_state.live_progress < 10 or st.session_state.live_progress > 90:
-    zoom_level = 4.5  # Zoom in for port views
+    zoom_level = 4.5
 else:
-    zoom_level = 3.5  # Wider view for ocean crossing
+    zoom_level = 3.5
 
 # Top-down satellite view
 st.pydeck_chart(pdk.Deck(
@@ -279,7 +295,7 @@ st.pydeck_chart(pdk.Deck(
         latitude=map_center_lat, 
         longitude=map_center_lon, 
         zoom=zoom_level,        
-        pitch=0,  # Top-down view from 20 meters above
+        pitch=0,
         bearing=0
     ),
     layers=active_layers,
@@ -311,12 +327,11 @@ st.write(f"**Distance Remaining:** {distance_remaining_nm} NM | **Estimated Arri
 # ==========================================
 if st.session_state.simulation_running:
     if st.session_state.live_progress < 100.0:
-        # Auto-increment progress
         st.session_state.live_progress = min(100.0, st.session_state.live_progress + 0.15)
+        st.session_state.time_counter += 1
         time.sleep(0.1)
         st.rerun()
     else:
-        # If reached 100%, stop simulation
         st.session_state.simulation_running = False
         st.success("🎉 Voyage Complete! Ship has arrived at destination!")
         st.balloons()
@@ -325,6 +340,8 @@ if st.session_state.simulation_running:
 if st.sidebar.button("🔄 Reset Voyage"):
     st.session_state.live_progress = 0.0
     st.session_state.simulation_running = False
+    st.session_state.time_counter = 0
+    st.session_state.traffic_offset = np.random.uniform(-3, 3, 4)
     st.rerun()
 
 # Display footer
