@@ -8,7 +8,7 @@ import numpy as np
 from datetime import datetime
 
 # Page setup
-st.set_page_config(page_title="Maritime Intelligence - GIS & Satellites", layout="wide")
+st.set_page_config(page_title="Maritime Intelligence - 200m View", layout="wide")
 st.title("🚢 Enterprise Maritime GeoAI Platform")
 st.subheader("Live Vessel Tracking • GIS Mapping • Satellite Imagery • Border Monitoring")
 
@@ -174,11 +174,10 @@ def get_continent(lat, lon):
         return "Eastern Mediterranean / Asia"
 
 # ==========================================
-# FIXED SATELLITE IMAGE GENERATOR (No Overflow)
+# FIXED SATELLITE IMAGE GENERATOR
 # ==========================================
 def generate_satellite_image(lat, lon, mode='top_down'):
     img_size = 400
-    # Use int32 to avoid overflow during arithmetic
     img = np.zeros((img_size, img_size, 3), dtype=np.int32)
 
     if lon < -30:  # Deep Atlantic
@@ -221,7 +220,6 @@ def generate_satellite_image(lat, lon, mode='top_down'):
             if (i-center)**2 + (j-center)**2 < 100:
                 img[i, j] = [255, 255, 0]
 
-    # Apply mode
     if mode == 'thermal':
         img = img.astype(float)
         img[:, :, 0] = np.clip(img[:, :, 0] * 0.8 + 100, 0, 255)
@@ -233,7 +231,6 @@ def generate_satellite_image(lat, lon, mode='top_down'):
         img[:, :, 1] = np.clip(img[:, :, 1] * 1.4, 0, 255)
         img[:, :, 2] = np.clip(img[:, :, 2] * 1.6, 0, 255)
 
-    # Final clip and convert to uint8
     img = np.clip(img, 0, 255).astype(np.uint8)
     return img
 
@@ -516,9 +513,9 @@ sat_info_col3.metric("Resolution", "10m/pixel", delta="Real-time")
 st.markdown("---")
 
 # ==========================================
-# GIS MAP
+# GIS MAP - WIDE VIEW FROM 200 METERS
 # ==========================================
-st.markdown("### 🗺️ Live Maritime GIS Map")
+st.markdown("### 🗺️ Live Maritime GIS Map (View from 200m altitude)")
 
 # Border lines
 border_lines_data = []
@@ -585,18 +582,20 @@ if show_ais:
         tooltip={"text": "Vessel: {vessel_name}\nType: {type}"}
     )
 
+# ========== BIGGER SHIP MARKER ==========
+# Increased radius to make the ship clearly visible from 200m altitude
 layer_target_vessel = pdk.Layer(
     'ScatterplotLayer', 
     data=your_vessel_df,
     get_position='[longitude, latitude]',
     get_color=[255, 255, 0, 255],    
-    get_radius=120000, 
+    get_radius=180000,  # Increased from 120k to 180k for better visibility
     pickable=True,
     tooltip={"text": "{vessel_name}\nType: {type}\nProgress: " + str(round(st.session_state.live_progress, 1)) + "%"}
 )
 
 # Risk zone
-risk_radius = 150000 + (risk_score / 100) * 200000
+risk_radius = 200000 + (risk_score / 100) * 300000  # Also increased
 risk_color_r = 255 if risk_score >= 50 else 255 if risk_score >= 30 else 0
 risk_color_g = 0 if risk_score >= 50 else 200 if risk_score >= 30 else 255
 risk_color_b = 0 if risk_score >= 50 else 0 if risk_score >= 30 else 0
@@ -620,18 +619,20 @@ if layer_trail: active_layers.append(layer_trail)
 if layer_borders: active_layers.append(layer_borders)
 if layer_traffic: active_layers.append(layer_traffic)
 
-# Map center & zoom
+# Map center & zoom - now with wider view (zoom=3.5 gives a broader ocean view)
 map_center_lat = vessel_current_lat
 map_center_lon = vessel_current_lon
-zoom_level = 5.5 if st.session_state.live_progress < 10 or st.session_state.live_progress > 90 else 4.5
+# For a view from 200 meters, we use a lower zoom (more zoomed out)
+# Zoom level 3.5 provides a good balance: you see the ship, surrounding water, and coastlines/borders
+zoom_level = 3.5  # Fixed to see wide area, but you can adjust based on progress if desired
 
 st.pydeck_chart(pdk.Deck(
-    map_style='mapbox://styles/mapbox/satellite-streets-v11',
+    map_style='mapbox://styles/mapbox/satellite-streets-v11',  # Shows borders, coastlines, and labels
     initial_view_state=pdk.ViewState(
         latitude=map_center_lat,
         longitude=map_center_lon,
         zoom=zoom_level,
-        pitch=0,
+        pitch=0,          # Top-down view
         bearing=0
     ),
     layers=active_layers
@@ -657,7 +658,7 @@ col2.metric("Voyage Progress", f"{round(st.session_state.live_progress, 1)}%", d
 col3.metric("Risk Level", risk_level, delta=f"Score: {risk_score}/100")
 
 st.markdown("### 📍 Current Vessel Position")
-st.info(f"**Latitude:** {vessel_current_lat:.4f}° | **Longitude:** {vessel_current_lon:.4f}° | **View:** Top-down at {zoom_level}x zoom | **Altitude:** 20 meters | **Heading:** {current_bearing}°")
+st.info(f"**Latitude:** {vessel_current_lat:.4f}° | **Longitude:** {vessel_current_lon:.4f}° | **View:** from 200m altitude (zoom {zoom_level}) | **Heading:** {current_bearing}°")
 
 st.markdown("### ⏱️ Real-Time ETA Countdown")
 progress_bar = st.progress(st.session_state.live_progress / 100.0)
