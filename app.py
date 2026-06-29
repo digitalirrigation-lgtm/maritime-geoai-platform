@@ -25,7 +25,7 @@ white_color, trail_green = 255, 127
 # 4D TIME ENGINE: STATE INITIALIZATION
 # ==========================================
 if 'live_progress' not in st.session_state:
-    st.session_state.live_progress = 0.0  
+    st.session_state.live_progress = 35.0  # Start mid-ocean for instant ocean view impact!
 if 'simulation_running' not in st.session_state:
     st.session_state.simulation_running = False
 
@@ -63,6 +63,7 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 
 total_trip_distance = calculate_distance(haifa_lat, haifa_lon, nynj_lat, nynj_lon)
 
+# Calculate your ship's coordinates along the geodesic route
 fraction = st.session_state.live_progress / 100.0
 vessel_current_lat = haifa_lat + (nynj_lat - haifa_lat) * fraction
 vessel_current_lon = haifa_lon + (nynj_lon - haifa_lon) * fraction
@@ -70,7 +71,7 @@ vessel_current_lon = haifa_lon + (nynj_lon - haifa_lon) * fraction
 distance_remaining_nm = calculate_distance(vessel_current_lat, vessel_current_lon, nynj_lat, nynj_lon)
 distance_covered_nm = round(total_trip_distance - distance_remaining_nm, 1)
 
-if int(st.session_state.live_progress) == 0 or int(st.session_state.live_progress) == 100:
+if int(st.session_state.live_progress) in:
     simulated_depth_meters = -15.0 
 else:
     simulated_depth_meters = round(-15.0 - (math.sin(fraction * math.pi) * 4985.0), 1)
@@ -79,11 +80,11 @@ bathymetry_status = "🚨 CRITICAL SHALLOW RISK" if abs(simulated_depth_meters) 
 risk_color = "normal" if abs(simulated_depth_meters) < 18.0 else "off"
 
 # ==========================================
-#🛰️ LIVE API WEATHER SATELLITE CONNECTION
+# 🛰️ LIVE API WEATHER SATELLITE CONNECTION
 # ==========================================
 try:
     api_url = f"https://open-meteo.com{vessel_current_lat}&longitude={vessel_current_lon}&current_weather=true"
-    response = requests.get(api_url, timeout=4).json()
+    response = requests.get(api_url, timeout=3).json()
     real_wind_kmh = response['current_weather']['windspeed']
     live_wind_knots = round(real_wind_kmh * 0.539957, 1)
     data_source_label = "📡 Connected Live to Satellite Open-Meteo Server Feed"
@@ -98,23 +99,42 @@ elif live_wind_knots >= 15.0:
 else:
     weather_alert, weather_color = "✅ Calm Sea Conditions", "off"
 
-# Data Registries
-ship_data = pd.DataFrame({
+# ==========================================
+# 🚢 FLEET INTERPOLATION SYSTEM (MULTIPLE CARGO SHIPS)
+# ==========================================
+# We build a registry for our ship AND neighboring traffic ships crossing nearby lanes
+your_vessel_df = pd.DataFrame({
+    'latitude': [vessel_current_lat],
+    'longitude': [vessel_current_lon],
+    'vessel_name': ['⭐ MV-YOUR-CARGO (Israel -> USA)'],
+    'type': ['Target Asset'],
+    'radius': [180000] # Made slightly larger to stand out
+})
+
+other_traffic_df = pd.DataFrame({
+    'latitude': [38.5, 34.2, 41.1, 35.8],
+    'longitude': [-35.4, -42.1, -22.5, -50.2],
+    'vessel_name': ['MV-Rotterdam-Express', 'MV-Atlantic-Titan', 'MV-Hamburg-Carrier', 'MV-Tokyo-Maru'],
+    'type': ['Neighboring Traffic'],
+    'radius': [100000]
+})
+
+ship_ports_df = pd.DataFrame({
     'latitude': [haifa_lat, nynj_lat], 'longitude': [haifa_lon, nynj_lon],
     'port_name': ['Port of Haifa (Origin)', 'Port of NY/NJ (Destination)'],
     'color_r': [h_red_val, n_red_val], 'color_g': [h_green_val, n_green_val], 'color_b': [h_blue_val, n_blue_val]
 })
 
 route_data = pd.DataFrame({'start_lon': [haifa_lon], 'start_lat': [haifa_lat], 'end_lon': [nynj_lon], 'end_lat': [nynj_lat]})
-vessel_registry = pd.DataFrame({'latitude': [vessel_current_lat], 'longitude': [vessel_current_lon], 'vessel_name': ['MV-GeoAI-Explorer'], 'wind': [live_wind_knots]})
 
+# Voyage calculations
 total_hours_remaining = distance_remaining_nm / vessel_speed_knots
 days, hours = int(total_hours_remaining // 24), int(total_hours_remaining % 24)
 dynamic_burn_per_day = 45.0 * ((vessel_speed_knots / 20.0) ** 3) if vessel_speed_knots > 0 else 0
 predicted_fuel_mt = round(dynamic_burn_per_day * (total_hours_remaining / 24.0), 1)
 total_co2_emissions_mt = round(predicted_fuel_mt * 3.114, 1)
 
-# Precompute paths
+# Precompute historical trail segments
 chart_list, trail_points = [], []
 step_count = max(1, int(st.session_state.live_progress))
 
@@ -154,37 +174,47 @@ e4.metric("💨 Live Wind at Ship Location", f"{live_wind_knots} kts", delta=wea
 
 st.markdown("---")
 
-# Render Map Layers
-layer_ports = pdk.Layer('ScatterplotLayer', data=ship_data, get_position='[longitude, latitude]', get_color='[color_r, color_g, color_b, 200]', get_radius=100000)
+# ==========================================
+# ORBITAL RADAR MAP COMPONENT (TOP-DOWN DEEP OCEAN VIEW)
+# ==========================================
+# Layer 1: Fixed Terminal Markers
+layer_ports = pdk.Layer('ScatterplotLayer', data=ship_ports_df, get_position='[longitude, latitude]', get_color='[color_r, color_g, color_b, 200]', get_radius=100000)
+
+# Layer 2: Main Route Arch Lane
 layer_arc = pdk.Layer('ArcLayer', data=route_data, get_source_position='[start_lon, start_lat]', get_target_position='[end_lon, end_lat]', get_source_color=[cyan_r, cyan_g, cyan_b, 180], get_target_color=[orange_r, orange_g, orange_b, 180], get_width=3)
-layer_vessel = pdk.Layer('ScatterplotLayer', data=vessel_registry, get_position='[longitude, latitude]', get_color=[white_color, white_color, white_color, 255], get_radius=140000)
 
-map_layers = [layer_arc, layer_ports]
-if not history_df.empty:
-    map_layers.append(pdk.Layer('LineLayer', data=history_df, get_source_position='[s_lon, s_lat]', get_target_position='[e_lon, e_lat]', get_color=[h_red_val, trail_green, trail_green, white_color], get_width=5))
-map_layers.append(layer_vessel)
+# Layer 3: Historical Wake Trail Segments
+layer_trail = pdk.Layer('LineLayer', data=history_df, get_source_position='[s_lon, s_lat]', get_target_position='[e_lon, e_lat]', get_color=[h_red_val, trail_green, trail_green, white_color], get_width=5) if not history_df.empty else None
 
-# CRITICAL ENHANCEMENT: CHANGED MAP_STYLE TO MAPBOX SATELLITE FOR SKY-TO-EARTH VIEW
+# LAYER 4: STANDALONE TRAFFIC SYSTEM (OTHER CARGO VESSELS) - Colored Gray
+layer_traffic = pdk.Layer(
+    'ScatterplotLayer', data=other_traffic_df,
+    get_position='[longitude, latitude]',
+    get_color=[160, 160, 160, 200],  # Neutral gray for secondary traffic
+    get_radius='radius', pickable=True
+)
+
+# LAYER 5: TARGET IDENTIFICATION OVERLAY (YOUR ACTIVE CARGO SHIP) - Colored Vivid Neon Yellow
+layer_target_vessel = pdk.Layer(
+    'ScatterplotLayer', data=your_vessel_df,
+    get_position='[longitude, latitude]',
+    get_color=[255, 255, 0, 255],    # Bright yellow makes your ship stand out immediately
+    get_radius='radius', pickable=True
+)
+
+# Assemble active mapping array layers
+active_layers = [layer_arc, layer_ports, layer_traffic]
+if layer_trail is not None:
+    active_layers.append(layer_trail)
+active_layers.append(layer_target_vessel)
+
+# FIX: Tilted view state to a vertical flat position (pitch=0, zoom=3.3) centered strictly over open water!
 st.pydeck_chart(pdk.Deck(
     map_style='mapbox://styles/mapbox/satellite-v9',
-    initial_view_state=pdk.ViewState(latitude=36.0, longitude=-20.0, zoom=2.2, pitch=50),
-    layers=map_layers,
-    tooltip={"text": "Asset: {vessel_name}\nTracking: Online"}
-))
-
-# Render charts
-st.markdown("### 📈 Voyage Time-Series Bathymetric Risk Predictor")
-st.line_chart(analytics_df['Ocean Depth (m)'])
-
-st.markdown("### 📡 Active Satellite System Telemetry Stream")
-st.info(f"**Vessel Status:** Tracking Active | **Voyage Progress:** {round(st.session_state.live_progress, 1)}% Completed | **Data Source:** {data_source_label}")
-
-# Automation Processing
-if st.session_state.simulation_running:
-    if st.session_state.live_progress < 100.0:
-        st.session_state.live_progress += 1.0
-        time.sleep(1.0)  
-        st.rerun()      
-    else:
-        st.session_state.simulation_running = False
-        st.rerun()
+    initial_view_state=pdk.ViewState(
+        latitude=37.5, 
+        longitude=-35.0, # Center camera right in the middle of the empty ocean
+        zoom=3.3,        # Pulled closer to exclude continents from prominent view
+        pitch=0          # Strict top-down sky satellite vantage perspective
+    ),
+    layers=active_layers,
